@@ -18,7 +18,7 @@ GetCurrentResourceName=function() return 'suimag-dailyquest' end
 Wait=function(ms) clock=clock+ms;coroutine.yield(ms) end
 CreateThread=function(fn) local co=coroutine.create(fn);while coroutine.status(co)~='dead' do local ok,err=coroutine.resume(co);assert(ok,err) end end
 RegisterCommand=function(name,fn) commands[name]=fn end
-RegisterKeyMapping=function() registeredKey=true end
+RegisterKeyMapping=function(_,_,_,key) registeredKey=key end
 RegisterNetEvent=function(name,fn) handlers[name]=fn end
 AddEventHandler=function(name,fn) handlers[name]=fn end
 exports=setmetatable({},{__call=function(_,name,fn) exposed[name]=fn end})
@@ -45,7 +45,7 @@ lib={
 dofile('client/main.lua')
 local function call(fn) CreateThread(fn) end
 local prefix='suimag-dailyquest:'
-eq(registeredKey,nil,'default does not claim a keyboard binding')
+eq(registeredKey,'F11','default quest key binding')
 call(commands.dailyquest)
 eq(menu,prefix..'root')
 eq(#contexts[prefix..'root'].options,4)

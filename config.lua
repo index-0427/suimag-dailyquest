@@ -1,8 +1,8 @@
 Config = {}
 
 Config.Command = 'dailyquest'
--- キー割り当ては初期状態で無効。必要なら 'F7' 等を指定。
-Config.Key = nil
+-- F11でクエスト画面を開く。キー割り当てを無効にする場合は nil。
+Config.Key = 'F11'
 Config.Reset = { offsetMinutes = 540, hour = 5, weekDay = 1 } -- JST / 月曜=1、日曜=7
 Config.TickSeconds = 15
 Config.AutoCreateTables = true
