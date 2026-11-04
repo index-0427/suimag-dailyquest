@@ -27,7 +27,17 @@ eq(DQTracking.measure(drive,frame({vehicle=11,mode='drive',x=10,wall=1793736105,
 eq(DQTracking.measure(drive,frame({vehicle=10,mode=false,x=10,wall=1793736105,timer=6000})).distance,0,'passenger')
 eq(DQTracking.measure(drive,frame({vehicle=10,mode='drive',x=200,wall=1793736105,timer=6000})).distance,200)
 -- A sample spanning reset apportions distance and duty into both periods.
-local session={}
+local function sessionFixture()
+    local s={trackingAssignments={}}
+    for _,q in ipairs(Config.Quests) do
+        for _,at in ipairs({1793735998,1793736100}) do
+            local start=DQ.period(q.period,at,Config.Reset).start
+            s.trackingAssignments[q.id..':'..start]={period_start=start,assigned_at=start}
+        end
+    end
+    return s
+end
+local session=sessionFixture()
 DQTracking.sample(session,frame({wall=1793735998,timer=1000}))
 DQTracking.sample(session,frame({x=25,wall=1793736003,timer=6000}))
 local drained=DQTracking.drain(session)
@@ -41,7 +51,7 @@ eq(totals['weekly_walk:1793563200'],25)
 eq(totals['weekly_duty:1793563200'],5)
 eq(#DQTracking.drain(session),0,'drain never replays an ambiguous write')
 -- Fractional metres survive consecutive successful flushes.
-session={}
+session=sessionFixture()
 DQTracking.sample(session,frame())
 DQTracking.sample(session,frame({x=0.6,wall=1793736105,timer=6000}))
 local function sum(id,entries) local n=0;for _,v in ipairs(entries) do if v.quest.id==id then n=n+v.amount end end;return n end
@@ -73,4 +83,14 @@ data.job.name='police';data.job.onduty=false;eq(DQTracking.frame(1,data).duty,fa
 data.metadata.isdead=true;eq(DQTracking.frame(1,data).alive,false)
 data.metadata.isdead=false;health=0;eq(DQTracking.frame(1,data).alive,false)
 ped=0;eq(DQTracking.frame(1,data),nil)
+
+-- An unassigned metric and the portion before selection must never count.
+local unassigned={}
+DQTracking.sample(unassigned,base);DQTracking.sample(unassigned,nextFrame)
+eq(#DQTracking.drain(unassigned),0,'unassigned movement stays at zero')
+local late={assignments={daily_walk={period_start=1793736000,assigned_at=1793736103}}}
+DQTracking.sample(late,base)
+DQTracking.sample(late,frame({x=25,wall=1793736105,timer=6000}))
+local lateProgress=DQTracking.drain(late)
+eq(#lateProgress,1);eq(lateProgress[1].quest.id,'daily_walk');eq(lateProgress[1].amount,10,'movement clipped to selection')
 print(('tracking: %d assertions passed'):format(count))

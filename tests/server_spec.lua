@@ -1,6 +1,7 @@
 dofile('config.lua')
 dofile('server/domain.lua')
 dofile('server/tracking.lua')
+dofile('server/selection.lua')
 local count, callbacks, handlers, commands, exposed, threads = 0, {}, {}, {}, {}, {}
 local now, timer, invoking = 1793736100, 1000, nil
 local players, records, visits, receipts, resourceStates = {}, {}, {}, {}, {}
@@ -104,6 +105,29 @@ DQStore = {
     end,
     pending = function() local result={};for _,r in pairs(records) do if r.status=='pending' then result[#result+1]=copy(r) end end;return result end,
 }
+
+-- Full-catalog assignment fixture keeps the historical reward/lifecycle regression tests focused.
+-- The production random planner and SQL quotas are exercised in selection_spec/sql_spec.
+local preferences={}
+DQStore.preferences=function(cid)
+    if preferences[cid]==false then return nil end
+    return preferences[cid] or {crime=false,employment=false}
+end
+DQStore.savePreferences=function(cid,value) preferences[cid]=copy(value) end
+DQStore.ensureBoards=function(cid,prefs,data,state,timestamp) open(cid,timestamp);return true end
+DQStore.boardState=function(cid,timestamp)
+    local boards,assignments={},{}
+    for _,kind in ipairs({'daily','weekly'}) do
+        local p=DQ.period(kind,timestamp,Config.Reset)
+        boards[kind]={period_start=p.start,ends_at=p.finish,rerolls_used=0}
+    end
+    for slot,q in ipairs(Config.Quests) do
+        local p=DQ.period(q.period,timestamp,Config.Reset)
+        assignments[#assignments+1]={quest_id=q.id,period_kind=q.period,period_start=p.start,assigned_at=p.start,active=1,slot=slot}
+    end
+    return boards,assignments
+end
+
 GetCurrentResourceName = function() return 'suimag-dailyquest' end
 GetResourceState = function(name) return resourceStates[name] or 'started-dependency' end
 GetGameTimer = function() return timer end
@@ -331,4 +355,45 @@ for _,entry in ipairs(captured[1].entries) do sampled[entry.quest.id]=entry.amou
 eq(sampled.daily_walk,10);eq(sampled.weekly_walk,10)
 eq(sampled.daily_duty,5);eq(sampled.weekly_duty,5)
 advance(15);resume(threads[2]);eq(#captured,1,'flushed tracking cannot repeat')
+
+-- Onboarding and settings are source-scoped; gameplay cannot progress before setup.
+preferences.SETUP=false
+player(9,'SETUP')
+local setup=list(9)
+eq(setup.needsSetup,true);eq(#setup.quests,0)
+eq(DQRuntime.signal(9,'SETUP','bus').error,'setup_required')
+advance(2)
+eq(callbacks['suimag-dailyquest:preferences'](9,{crime=1,employment=false}).error,'invalid_request')
+advance(2)
+eq(callbacks['suimag-dailyquest:preferences'](9,{crime=true,employment=true}).ok,true)
+eq(list(9).preferences.crime,true);eq(preferences.SETUP.employment,true)
+local beforeValue=row('SETUP','daily_visit').progress
+advance(2)
+eq(callbacks['suimag-dailyquest:preferences'](9,{crime=false,employment=false}).ok,true)
+eq(list(9).preferences.crime,false);eq(row('SETUP','daily_visit').progress,beforeValue)
+local rerollCall
+DQStore.reroll=function(cid,quest,prefs,data,state,timestamp,defs)
+    rerollCall={cid=cid,id=quest.id,prefs=prefs}
+    return false,'no_candidates'
+end
+advance(2)
+eq(callbacks['suimag-dailyquest:reroll'](9,'daily_walk',DQ.period('daily',now,Config.Reset).start).error,'no_candidates')
+eq(rerollCall.cid,'SETUP');eq(rerollCall.id,'daily_walk');eq(rerollCall.prefs.crime,false)
+advance(2)
+eq(callbacks['suimag-dailyquest:reroll'](9,'daily_walk',0).error,'expired')
+advance(2)
+eq(callbacks['suimag-dailyquest:reroll'](9,'unknown',0).error,'invalid_request')
+
+
+-- A shortage still exposes preferences instead of locking the user out of setup.
+local oldState=DQStore.boardState
+DQStore.ensureBoards=function() return false,'no_candidates' end
+DQStore.boardState=function() return {},{} end
+player(10,'SHORTAGE')
+local shortage=list(10)
+eq(shortage.ok,true);eq(shortage.drawError,'no_candidates');eq(#shortage.quests,0)
+eq(type(shortage.preferences),'table')
+advance(2)
+eq(callbacks['suimag-dailyquest:preferences'](10,{crime=false,employment=false}).ok,true,'settings save without a pre-save draw')
+DQStore.boardState=oldState
 io.write(('server: %d assertions passed\n'):format(count))

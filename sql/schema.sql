@@ -41,3 +41,35 @@ CREATE TABLE IF NOT EXISTS suimag_dailyquest_signal_gates (
     token VARCHAR(96) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
     PRIMARY KEY (citizenid, activity)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS suimag_dailyquest_preferences (
+    citizenid VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    exclude_crime TINYINT UNSIGNED NOT NULL,
+    exclude_employment TINYINT UNSIGNED NOT NULL,
+    updated_at BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (citizenid)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS suimag_dailyquest_boards (
+    citizenid VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    period_kind ENUM('daily', 'weekly') NOT NULL,
+    period_start BIGINT UNSIGNED NOT NULL,
+    ends_at BIGINT UNSIGNED NOT NULL,
+    rerolls_used TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    token VARCHAR(96) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+    PRIMARY KEY (citizenid, period_kind, period_start)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS suimag_dailyquest_assignments (
+    citizenid VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    period_kind ENUM('daily', 'weekly') NOT NULL,
+    period_start BIGINT UNSIGNED NOT NULL,
+    quest_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    slot TINYINT UNSIGNED NOT NULL,
+    assigned_at BIGINT UNSIGNED NOT NULL,
+    assigned_token VARCHAR(96) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    active TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    PRIMARY KEY (citizenid, period_kind, period_start, quest_id),
+    KEY current_slots (citizenid, period_kind, period_start, active, slot),
+    KEY assigned_progress (citizenid, quest_id, period_start, active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

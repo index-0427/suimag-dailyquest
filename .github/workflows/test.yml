@@ -22,6 +22,8 @@ jobs:
           lua tests/server_spec.lua
           lua tests/client_spec.lua
           lua tests/catalog_spec.lua
+          lua tests/selection_spec.lua
+          lua tests/boards_spec.lua
           lua tests/tracking_spec.lua
           lua tests/adapters_spec.lua
       - name: Actual SQL with no external database

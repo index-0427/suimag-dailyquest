@@ -203,6 +203,83 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         eq(value("daily_duty"), "2", "duty before reset")
         eq(value("daily_duty", start=1793822400), "3", "duty after reset")
         eq(value("weekly_duty", start=week_start), "5", "weekly duty conserved")
+        # Real production 3/2 board transactions, distinct from the full-catalog collector fixtures.
+        meta = payload["boardMeta"]
+
+        def board_plan(name, owner="DRAW"):
+            items = PLANS[name]
+            return "START TRANSACTION;\n" + ";\n".join(
+                bind(item["query"], [owner if v == "DRAW" else v for v in item["values"]])
+                for item in items
+            ) + ";\nCOMMIT;"
+
+        def board_ids(owner="DRAW"):
+            return scalar("SELECT CONCAT(period_kind,':',slot,':',quest_id) FROM suimag_dailyquest_assignments "
+                          f"WHERE citizenid='{owner}' AND active=1 ORDER BY period_kind,slot;")
+
+        execute(board_plan("board_prefs"))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda _: execute(board_plan("board_draw")), range(8)))
+        ids = board_ids()
+        eq(len(ids.splitlines()), 5, "initial race creates five assignments exactly")
+        eq(sum(line.startswith("daily:") for line in ids.splitlines()), 3, "three daily slots")
+        eq(sum(line.startswith("weekly:") for line in ids.splitlines()), 2, "two weekly slots")
+        eq("house" in ids or "boosting" in ids or "duty" in ids, False, "exclusions applied")
+        eq(len(PLANS["board_draw_again"]), 0, "reconnect does not draw again")
+        execute(board_plan("board_prefs_change"))
+        eq(board_ids(), ids, "preference updates do not change assignments")
+        # An old unselected completed record cannot be claimed via a forged callback.
+        execute(statement("ensure", ["DRAW","daily_house","daily",1793736000,1793822400,1,"bank","",1000]))
+        execute("UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='DRAW' AND quest_id='daily_house';")
+        unselected = int(scalar("SELECT id FROM suimag_dailyquest_progress WHERE citizenid='DRAW' AND quest_id='daily_house';"))
+        eq(scalar(statement("reserve",[1793736110,unselected,"DRAW",1793736110])+";SELECT ROW_COUNT();"),"0","unassigned payout rejected")
+        execute(statement("ensure", ["DRAW",meta["dailyReplacement"],"daily",1793736000,1793822400,99999,"bank","",1000]))
+        execute(f"UPDATE suimag_dailyquest_progress SET progress=99 WHERE citizenid='DRAW' AND quest_id='{meta['dailyReplacement']}';")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda _: execute(board_plan("board_reroll_daily")), range(8)))
+        eq(len(board_ids().splitlines()),5,"reroll retains five slots")
+        eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='DRAW' AND period_kind='daily';"),"1","daily reroll used once")
+        eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='DRAW' AND period_kind='weekly';"),"0","weekly allowance independent")
+        eq(scalar(f"SELECT progress FROM suimag_dailyquest_progress WHERE citizenid='DRAW' AND quest_id='{meta['dailyReplacement']}';"),"0","replacement starts at zero")
+        eq(scalar(f"SELECT active FROM suimag_dailyquest_assignments WHERE citizenid='DRAW' AND quest_id='{meta['daily']}';"),"0","old quest retired")
+        execute(f"UPDATE suimag_dailyquest_progress SET progress=12 WHERE citizenid='DRAW' AND quest_id='{meta['dailyReplacement']}';")
+        execute(board_plan("board_reroll_daily"))
+        eq(scalar(f"SELECT progress FROM suimag_dailyquest_progress WHERE citizenid='DRAW' AND quest_id='{meta['dailyReplacement']}';"),"12","replaying reroll cannot reset progress again")
+        execute(board_plan("board_reroll_weekly"))
+        eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='DRAW' AND period_kind='weekly';"),"1","weekly reroll independently works")
+        # Completed, claimed and pending quests all keep their slot and allowance.
+        for status in ("complete","claimed","pending"):
+            owner = "BLOCK_" + status
+            execute(board_plan("board_draw",owner))
+            before = board_ids(owner)
+            if status == "complete":
+                execute(f"UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='{owner}' AND quest_id='{meta['daily']}';")
+            else:
+                execute(f"UPDATE suimag_dailyquest_progress SET status='{status}' WHERE citizenid='{owner}' AND quest_id='{meta['daily']}';")
+            execute(board_plan("board_reroll_daily",owner))
+            eq(board_ids(owner),before,status+" quest cannot be replaced")
+            eq(scalar(f"SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='{owner}' AND period_kind='daily';"),"0",status+" rejection preserves allowance")
+        # Failure after quota reservation rolls back the retirement and the quota together.
+        execute(board_plan("board_draw","ROLLBACK"))
+        before = board_ids("ROLLBACK")
+        chunks=PLANS["board_reroll_daily"]
+        broken="START TRANSACTION;"+";".join(bind(q["query"],["ROLLBACK" if v=="DRAW" else v for v in q["values"]]) for q in chunks[:2])+";INSERT INTO absent VALUES (1);COMMIT;"
+        eq(execute(broken,check=False).returncode!=0,True,"reroll failure injection")
+        eq(board_ids("ROLLBACK"),before,"rollback preserves assignments")
+        eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='ROLLBACK' AND period_kind='daily';"),"0","rollback restores allowance")
+        execute(board_plan("board_reroll_daily","ROLLBACK"))
+        eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='ROLLBACK' AND period_kind='daily';"),"1","rollback can retry")
+        # Time before assignment is not retroactively credited to a new quest.
+        assigned_time=int(scalar("SELECT assigned_at FROM suimag_dailyquest_assignments WHERE citizenid='DRAW' AND quest_id='daily_time';"))
+        execute(statement("time",[assigned_time+5,assigned_time-10,"DRAW","daily_time",1793736000]))
+        eq(scalar("SELECT progress FROM suimag_dailyquest_progress WHERE citizenid='DRAW' AND quest_id='daily_time';"),"5","time clipped to assignment")
+        execute(board_plan("board_next_day"))
+        eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='DRAW' AND period_kind='daily' AND period_start=1793822400;"),"0","daily reset restores one reroll")
+        eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='DRAW' AND period_kind='weekly' AND period_start=1793563200;"),"1","daily reset does not restore weekly reroll")
+        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_assignments WHERE citizenid='DRAW' AND period_kind='daily' AND period_start=1793822400 AND active=1;"),"3","new day gets three assignments")
+        execute(board_plan("board_next_week"))
+        eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='DRAW' AND period_kind='weekly' AND period_start=1794168000;"),"0","weekly reset restores one reroll")
+        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_assignments WHERE citizenid='DRAW' AND period_kind='weekly' AND period_start=1794168000 AND active=1;"),"2","new week gets two assignments")
         print(f"sql: {checks} assertions passed (isolated MariaDB, no network)")
     finally:
         daemon.terminate()

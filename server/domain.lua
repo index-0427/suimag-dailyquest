@@ -53,6 +53,8 @@ function DQ.validate(config)
             assert(DQ.identifier(resource) and allowed == true, 'Invalid resource allowlist')
         end
     end
+
+    assert(config.Draw and DQ.integer(config.Draw.daily,1,20) and DQ.integer(config.Draw.weekly,1,20), 'Invalid draw size')
     local definitions = {}
     assert(#config.Quests > 0 and #config.Quests <= 64, 'Define 1..64 quests')
     for _, quest in ipairs(config.Quests) do
@@ -71,6 +73,22 @@ function DQ.validate(config)
             assert(quest.target <= (quest.period == 'daily' and 1 or 7), 'Impossible attendance target')
         elseif quest.metric == 'activity' then
             assert(config.Activities[quest.activity], 'Missing activity definition')
+        end
+
+        assert(quest.quick == nil or type(quest.quick) == 'boolean', 'Invalid quick flag')
+        for tag, enabled in pairs(quest.tags or {}) do
+            assert((tag=='crime' or tag=='employment') and enabled==true, 'Invalid quest tag')
+        end
+        local req = quest.requirements or {}
+        assert(req.employed == nil or type(req.employed)=='boolean', 'Invalid employment requirement')
+        if req.employed or req.jobs or req.types then
+            assert(quest.tags and quest.tags.employment, 'Job requirements need employment tag')
+        end
+        for name, grade in pairs(req.jobs or {}) do
+            assert(DQ.identifier(name) and DQ.integer(grade,0,100), 'Invalid required job')
+        end
+        for name, allowed in pairs(req.types or {}) do
+            assert(type(name)=='string' and #name>0 and #name<=64 and allowed==true, 'Invalid required job type')
         end
         local reward = quest.reward
         assert(type(reward) == 'table' and (reward.type == 'bank' or reward.type == 'cash'

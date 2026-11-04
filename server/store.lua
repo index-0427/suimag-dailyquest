@@ -7,8 +7,8 @@ S.sql = {
         (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_name, reward_amount)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id]],
     visit = [[INSERT INTO suimag_dailyquest_visits (citizenid, day_start) VALUES (?, ?) ON DUPLICATE KEY UPDATE citizenid = citizenid]],
-    attendance = [[UPDATE suimag_dailyquest_progress SET progress = LEAST(target,
-        (SELECT COUNT(*) FROM suimag_dailyquest_visits WHERE citizenid = ? AND day_start >= ? AND day_start < ?))
+    attendance = [[UPDATE suimag_dailyquest_progress SET progress = GREATEST(progress, LEAST(target,
+        (SELECT COUNT(*) FROM suimag_dailyquest_visits WHERE citizenid = ? AND day_start >= ? AND day_start < ?)))
         WHERE citizenid = ? AND quest_id = ? AND period_start = ? AND status = 'active']],
     advance = [[UPDATE suimag_dailyquest_progress SET progress = LEAST(target, progress + ?)
         WHERE citizenid = ? AND quest_id = ? AND period_start = ? AND status = 'active']],
@@ -34,10 +34,23 @@ S.sql = {
     gateDone = [[UPDATE suimag_dailyquest_signal_gates SET token = '' WHERE citizenid = ? AND activity = ? AND token = ?]],
     signal = [[UPDATE suimag_dailyquest_progress SET progress = LEAST(target, progress + 1)
         WHERE citizenid = ? AND quest_id = ? AND period_start = ? AND status = 'active'
-        AND EXISTS (SELECT 1 FROM suimag_dailyquest_signal_gates WHERE citizenid = ? AND activity = ? AND token = ?)]],    pending = [[SELECT id, citizenid, quest_id, period_start, attempted_at, reward_type, reward_name, reward_amount
+        AND EXISTS (SELECT 1 FROM suimag_dailyquest_signal_gates WHERE citizenid = ? AND activity = ? AND token = ?)]],
+    pending = [[SELECT id, citizenid, quest_id, period_start, attempted_at, reward_type, reward_name, reward_amount
         FROM suimag_dailyquest_progress WHERE status = 'pending' ORDER BY attempted_at LIMIT 50]],
 }
 
+
+-- Every progress path and payout query independently requires a current assignment.
+local selected = [[ AND EXISTS (SELECT 1 FROM suimag_dailyquest_assignments a
+    WHERE a.citizenid = suimag_dailyquest_progress.citizenid AND a.quest_id = suimag_dailyquest_progress.quest_id
+    AND a.period_start = suimag_dailyquest_progress.period_start AND a.active = 1)]]
+for _, name in ipairs({'attendance','advance','list','row','reserve','activity','signal'}) do
+    S.sql[name] = S.sql[name] .. selected
+end
+S.sql.time = [[UPDATE suimag_dailyquest_progress p JOIN suimag_dailyquest_assignments a
+    ON a.citizenid=p.citizenid AND a.quest_id=p.quest_id AND a.period_start=p.period_start AND a.active=1
+    SET p.progress=LEAST(p.target,p.progress+GREATEST(0,?-GREATEST(?,a.assigned_at)))
+    WHERE p.citizenid=? AND p.quest_id=? AND p.period_start=? AND p.status='active']]
 local function query(name, values)
     return { query = S.sql[name], values = values }
 end
@@ -53,37 +66,37 @@ function S.init()
     end
     S.bootId = assert(MySQL.scalar.await('SELECT UUID()'), 'Could not create signal boot ID')
     MySQL.query.await('SELECT citizenid, activity, last_at, token FROM suimag_dailyquest_signal_gates LIMIT 0')
+    MySQL.query.await('SELECT exclude_crime, exclude_employment, updated_at FROM suimag_dailyquest_preferences LIMIT 0')
+    MySQL.query.await('SELECT period_kind, period_start, ends_at, rerolls_used, token FROM suimag_dailyquest_boards LIMIT 0')
+    MySQL.query.await('SELECT quest_id, slot, assigned_at, assigned_token, active FROM suimag_dailyquest_assignments LIMIT 0')
     -- Fail closed if any required table or column is missing, even with auto-create disabled.
     MySQL.query.await('SELECT id, citizenid, quest_id, period_kind, period_start, ends_at, target, progress, reward_type, reward_name, reward_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_progress LIMIT 0')
     MySQL.query.await('SELECT citizenid, day_start FROM suimag_dailyquest_visits LIMIT 0')
     MySQL.query.await('SELECT citizenid, activity, receipt, processed, created_at FROM suimag_dailyquest_events LIMIT 0')
 end
 
-function S.open(citizenid, now)
+function S.open(citizenid, now, assignments)
     local queries = {}
     local day = DQ.period('daily', now, Config.Reset)
     queries[#queries + 1] = query('visit', { citizenid, day.start })
     for _, quest in ipairs(Config.Quests) do
         local period = DQ.period(quest.period, now, Config.Reset)
-        queries[#queries + 1] = query('ensure', {
-            citizenid, quest.id, quest.period, period.start, period.finish, quest.target,
-            quest.reward.type, quest.reward.name or '', quest.reward.amount,
-        })
-        if quest.metric == 'attendance' then
+        local assignment = assignments[quest.id]
+        if quest.metric == 'attendance' and assignment and tonumber(assignment.period_start)==period.start then
+            local firstDay = DQ.period('daily',tonumber(assignment.assigned_at),Config.Reset).start
             queries[#queries + 1] = query('attendance', {
-                citizenid, period.start, period.finish, citizenid, quest.id, period.start,
+                citizenid, math.max(period.start,firstDay), period.finish, citizenid, quest.id, period.start,
             })
         end
     end
     transact(queries)
 end
-
 function S.addTime(citizenid, from, to)
     local queries = {}
     for _, quest in ipairs(Config.Quests) do
         if quest.metric == 'playtime' then
             for _, segment in ipairs(DQ.segments(quest.period, from, to, Config.Reset)) do
-                queries[#queries + 1] = query('advance', { segment.amount, citizenid, quest.id, segment.period.start })
+                queries[#queries + 1] = query('time', { math.min(to,segment.period.finish), math.max(from,segment.period.start), citizenid, quest.id, segment.period.start })
             end
         end
     end
@@ -165,10 +178,6 @@ function S.tracked(citizenid, increments)
     local queries = {}
     for _, entry in ipairs(increments) do
         local quest, period = entry.quest, entry.period
-        queries[#queries + 1] = query('ensure', {
-            citizenid, quest.id, quest.period, period.start, period.finish, quest.target,
-            quest.reward.type, quest.reward.name or '', quest.reward.amount,
-        })
         queries[#queries + 1] = query('advance', { entry.amount, citizenid, quest.id, period.start })
     end
     transact(queries)

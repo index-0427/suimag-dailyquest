@@ -66,10 +66,18 @@ function T.sample(session, frame)
         elseif quest.metric == 'distance' and quest.mode == measurement.mode then amount = measurement.distance end
         if amount > 0 then
             for _, segment in ipairs(DQ.segments(quest.period, frame.wall - measurement.seconds, frame.wall, Config.Reset)) do
-                local key = quest.id .. ':' .. segment.period.start
-                local entry = state.pending[key] or { quest=quest, period=segment.period, amount=0 }
-                entry.amount = math.min(quest.target, entry.amount + amount * segment.amount / measurement.seconds)
-                state.pending[key] = entry
+                local assignment = session.trackingAssignments and session.trackingAssignments[quest.id .. ':' .. segment.period.start]
+                    or session.assignments and session.assignments[quest.id]
+                if assignment and tonumber(assignment.period_start)==segment.period.start then
+                    local from = math.max(frame.wall-measurement.seconds,segment.period.start,tonumber(assignment.assigned_at))
+                    local to = math.min(frame.wall,segment.period.finish)
+                    if to > from then
+                        local key = quest.id .. ':' .. segment.period.start
+                        local entry = state.pending[key] or { quest=quest, period=segment.period, amount=0 }
+                        entry.amount = math.min(quest.target, entry.amount + amount * (to-from) / measurement.seconds)
+                        state.pending[key] = entry
+                    end
+                end
             end
         end
     end

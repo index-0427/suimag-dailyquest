@@ -127,3 +127,18 @@ pair('house', 'activity', 1, 3, { 'ひと仕事して脱出', '家強盗の一�
     '戦利品を得てホストが脱出する家強盗を完了する。完了時の参加者が対象。', {3000,12000}, { activity='house', unit='回' })
 pair('boosting', 'activity', 1, 3, { 'ターゲット車両を届ける', '今週のブースティング' },
     'ブースティングを完了する。成功フックで通知されたグループ参加者が対象。', {3500,14000}, { activity='boosting', unit='回' })
+
+-- カタログから各期間に提示する件数。設定保存前は抽選・進捗加算をしない。
+Config.Draw = { daily=3, weekly=2 }
+-- タグは複数付与可能。必要なら requirements.jobs={police=2} / types={leo=true} で所属・最低ランクを限定。
+for _, quest in ipairs(Config.Quests) do
+    quest.tags = {}
+    if quest.activity == 'house' or quest.activity == 'boosting' then quest.tags.crime = true end
+    if quest.metric == 'duty' then
+        quest.tags.employment = true
+        quest.requirements = { employed=true }
+    end
+    quest.quick = quest.period == 'daily' and
+        (quest.metric == 'attendance' or quest.metric == 'consume'
+            or (quest.metric == 'distance' and (quest.mode == 'walk' or quest.mode == 'cycle')))
+end

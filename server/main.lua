@@ -23,7 +23,34 @@ local function current(source, session)
         and player.PlayerData.citizenid == session.citizenid
 end
 
-local function run(source, fn)
+
+local function reloadAssignments(session, now)
+    local boards, assignments = DQStore.boardState(session.citizenid,now)
+    session.boards, session.assignments = boards, {}
+    session.trackingAssignments = session.trackingAssignments or {}
+    for key, assignment in pairs(session.trackingAssignments) do
+        local finish=tonumber(assignment.period_start)+(assignment.period_kind=='daily' and 86400 or 604800)
+        if finish<now-30 then session.trackingAssignments[key]=nil end
+    end
+    for _, assignment in ipairs(assignments) do
+        local key=assignment.quest_id..':'..math.floor(tonumber(assignment.period_start))
+        if tonumber(assignment.active)==1 then
+            session.assignments[assignment.quest_id]=assignment
+            session.trackingAssignments[key]=assignment
+        else session.trackingAssignments[key]=nil end
+    end
+end
+
+local function flushTime(session,now)
+    local timer=GetGameTimer()
+    local seconds=DQ.elapsed(session,now,timer,Config.TickSeconds*2)
+    session.wall,session.timer=now,timer
+    local tracked=DQTracking.drain(session)
+    if seconds and seconds>0 then DQStore.addTime(session.citizenid,now-seconds,now) end
+    if #tracked>0 then DQStore.tracked(session.citizenid,tracked) end
+end
+
+local function run(source, fn, allowSetup, skipDraw)
     source = tonumber(source)
     if not DQ.integer(source, 1) then return { ok = false, error = 'player_unavailable' } end
     if not ready then return { ok = false, error = 'not_ready' } end
@@ -51,12 +78,26 @@ local function run(source, fn)
     local ok, result = xpcall(function()
         local now = os.time()
         local day = DQ.period('daily', now, Config.Reset).start
-        if session.day ~= day then
-            DQStore.open(citizenid, now)
-            session.day = day
+        if session.day ~= day and not skipDraw then
+            session.preferences=DQStore.preferences(citizenid) or false
+            if not current(source,session) then return {ok=false,error='player_unavailable'} end
+            if session.preferences then
+                local data=exports.qbx_core:GetPlayer(source).PlayerData
+                local initialized,err=DQStore.ensureBoards(citizenid,session.preferences,data,GetResourceState,now)
+                if not initialized then
+                    session.drawError=err
+                    if allowSetup then reloadAssignments(session,now); return fn(session,now) end
+                    return {ok=false,error=err}
+                end
+                session.drawError=nil
+                reloadAssignments(session,now)
+                DQStore.open(citizenid,now,session.assignments)
+            else session.assignments={} end
+            session.day=day
         end
-        if not current(source, session) then return { ok = false, error = 'player_unavailable' } end
-        return fn(session, now)
+        if not current(source,session) then return {ok=false,error='player_unavailable'} end
+        if not session.preferences and not allowSetup then return {ok=false,error='setup_required'} end
+        return fn(session,now)
     end, debug.traceback)
     locks[citizenid] = nil
     if not ok then
@@ -92,6 +133,7 @@ end
 
 local function snapshot(source)
     return run(source, function(session, now)
+        if not session.preferences then return {ok=true,needsSetup=true,quests={}} end
         local rows, quests = DQStore.list(session.citizenid, now), {}
         if not current(source, session) then return { ok = false, error = 'player_unavailable' } end
         local byId = {}
@@ -121,16 +163,21 @@ local function snapshot(source)
                     precision = quest.metric == 'distance' and 1 or 0,
                     available = not (quest.metric == 'activity' and Config.Activities[quest.activity].resource)
                         or GetResourceState(Config.Activities[quest.activity].resource) == 'started',
-                    reward = rewardLabel,
+                    reward=rewardLabel, quick=quest.quick, tags=quest.tags,
+                    canReroll=row.status=='active' and row.progress<row.target
+                        and tonumber(session.boards[quest.period].rerolls_used)==0,
                 }
             end
         end
         return {
-            ok = true, quests = quests, now = now,
+            ok=true,quests=quests,now=now,preferences=session.preferences,
+            drawError=session.drawError,
+            rerolls={daily=session.boards.daily and 1-tonumber(session.boards.daily.rerolls_used) or 0,
+                weekly=session.boards.weekly and 1-tonumber(session.boards.weekly.rerolls_used) or 0},
             dailyReset = DQ.resetLabel(DQ.period('daily', now, Config.Reset).finish, Config.Reset),
             weeklyReset = DQ.resetLabel(DQ.period('weekly', now, Config.Reset).finish, Config.Reset),
         }
-    end)
+    end,true)
 end
 
 local function claim(source, questId, periodStart)
@@ -197,6 +244,39 @@ end)
 lib.callback.register(prefix .. 'claim', function(source, questId, periodStart)
     if not rateLimit(source, 'claim') then return { ok = false, error = 'rate_limited' } end
     return claim(source, questId, periodStart)
+end)
+
+
+lib.callback.register(prefix..'preferences',function(source,exclusions)
+    if not rateLimit(source,'preferences') then return {ok=false,error='rate_limited'} end
+    local prefs=DQSelection.preferences(exclusions)
+    if not prefs then return {ok=false,error='invalid_request'} end
+    return run(source,function(session,now)
+        DQStore.savePreferences(session.citizenid,prefs,now)
+        session.preferences,session.day=prefs,nil
+        return {ok=true}
+    end,true,true)
+end)
+
+lib.callback.register(prefix..'reroll',function(source,questId,periodStart)
+    if not rateLimit(source,'reroll') then return {ok=false,error='rate_limited'} end
+    local quest=type(questId)=='string' and definitions[questId]
+    if not quest or not DQ.integer(periodStart,0,4102444800) then return {ok=false,error='invalid_request'} end
+    return run(source,function(session,now)
+        if DQ.period(quest.period,now,Config.Reset).start~=periodStart then return {ok=false,error='expired'} end
+        flushTime(session,now)
+        if not current(source,session) then return {ok=false,error='player_unavailable'} end
+        local data=exports.qbx_core:GetPlayer(source).PlayerData
+        local ok,result=DQStore.reroll(session.citizenid,quest,session.preferences,data,GetResourceState,os.time(),definitions)
+        if not ok then return {ok=false,error=result} end
+        reloadAssignments(session,os.time())
+        if session.tracking then
+            for key,entry in pairs(session.tracking.pending) do
+                if entry.quest.id==quest.id or entry.quest.id==result then session.tracking.pending[key]=nil end
+            end
+        end
+        return {ok=true}
+    end)
 end)
 
 -- Local server event ONLY. Never RegisterNetEvent this event or trust client completion reports.
@@ -290,13 +370,7 @@ CreateThread(function()
             for _, id in ipairs(GetPlayers()) do
                 local sourceId = tonumber(id)
                 run(sourceId, function(session, now)
-                    local timer = GetGameTimer()
-                    local seconds = DQ.elapsed(session, now, timer, Config.TickSeconds * 2)
-                    -- Advance before awaiting DB. An ambiguous write must never be replayed.
-                    session.wall, session.timer = now, timer
-                    local tracked = DQTracking.drain(session)
-                    if seconds and seconds > 0 then DQStore.addTime(session.citizenid, now - seconds, now) end
-                    if #tracked > 0 then DQStore.tracked(session.citizenid, tracked) end
+                    flushTime(session,now)
                 end)
             end
         end
