@@ -3,9 +3,10 @@
 日次20候補から3件、週次20候補から2件をキャラクター別に固定抽選します。
 日次は短時間枠を最低1件含め、犯罪・職業必須の除外設定、実際の所属、連携元の稼働状態を反映します。
 [抽選・リロールのルール](selection.md) を参照してください。
-既存6件のID・条件・報酬は維持し、17系統を追加しています。
+クエストのID・条件を維持し、報酬は全候補共通です。デイリー1件15万・ウィークリー1件50万。
 日次はJST毎日05:00、週次はJST月曜05:00に更新します。
 
+デイリー全3件をクリアすると、追加20万を1日1回受け取れます（日次合計65万）。週次2件は合計100万です。
 下表は全候補の一覧です。実際に提示される3件・2件だけが進捗・報酬の対象です。
 勤務クエストは職業への所属・出勤が必要です。ジョブ・犯罪は各リソースの参加条件に従います。
 連携元が未起動の未達成クエストには「連携元が未起動」を表示し、達成済みの報酬は受け取れます。
@@ -14,51 +15,51 @@
 
 | ID | クエスト | 目標 | 銀行報酬 | 判定元 |
 | --- | --- | --- | ---: | --- |
-| daily_visit | 今日の街歩き | 1日 | $1000 | Qboxのキャラクター参加 |
-| daily_time | 街で過ごす30分 | 30分 | $3000 | サーバー接続時間 |
-| daily_meals | 食事を忘れずに | 3回 | $2000 | ox_inventoryの使用完了 |
-| daily_walk | 街角ウォーキング | 1km | $1500 | OneSyncのサーバー位置観測 |
-| daily_cycle | ペダルをこいで | 3km | $2000 | OneSyncのサーバー位置観測 |
-| daily_drive | 今日のドライブ | 8km | $2000 | OneSyncのサーバー位置観測 |
-| daily_duty | 今日の勤務 | 30分 | $2500 | Qboxの出勤状態 |
-| daily_bus | 街の足を支える | 1回 | $2500 | gg_busjob：入金＋精算通知 |
-| daily_garbage | 街をきれいに | 1回 | $2500 | gg_garbagejob：入金＋精算通知 |
-| daily_electrician | 街に明かりを | 2回 | $2500 | gg_electricianjob：入金＋精算通知 |
-| daily_postal | 今日のお届けもの | 2回 | $2500 | gg_gopostal：入金＋精算通知 |
-| daily_taxi | お客様を目的地へ | 2回 | $2500 | gg_taxijob：入金＋精算通知 |
-| daily_gruppe | 大切な荷物を守る | 1回 | $3000 | gg_gruppejob：入金＋精算通知 |
-| daily_fishing | 今日の水揚げ | 1回 | $2000 | pug-fishing：入金＋精算通知 |
-| daily_hunting | 狩りの成果 | 1回 | $2500 | wais-hunting：入金＋精算通知 |
-| daily_construction | 街づくりに参加 | 1回 | $3000 | tw-builderjob：完了通知 |
-| daily_cleaning | 高圧洗浄の日 | 1回 | $2500 | kq_powerwashing：完了通知 |
-| daily_recycle | 資源を次の誰かへ | 5箱 | $2000 | jim-recycle：完了通知 |
-| daily_house | ひと仕事して脱出 | 1回 | $3000 | satou_houserobbery：完了通知 |
-| daily_boosting | ターゲット車両を届ける | 1回 | $3500 | gg_boosting：完了通知 |
+| daily_visit | 今日の街歩き | 1日 | $150000 | Qboxのキャラクター参加 |
+| daily_time | 街で過ごす30分 | 30分 | $150000 | サーバー接続時間 |
+| daily_meals | 食事を忘れずに | 3回 | $150000 | ox_inventoryの使用完了 |
+| daily_walk | 街角ウォーキング | 1km | $150000 | OneSyncのサーバー位置観測 |
+| daily_cycle | ペダルをこいで | 3km | $150000 | OneSyncのサーバー位置観測 |
+| daily_drive | 今日のドライブ | 8km | $150000 | OneSyncのサーバー位置観測 |
+| daily_duty | 今日の勤務 | 30分 | $150000 | Qboxの出勤状態 |
+| daily_bus | 街の足を支える | 1回 | $150000 | gg_busjob：入金＋精算通知 |
+| daily_garbage | 街をきれいに | 1回 | $150000 | gg_garbagejob：入金＋精算通知 |
+| daily_electrician | 街に明かりを | 2回 | $150000 | gg_electricianjob：入金＋精算通知 |
+| daily_postal | 今日のお届けもの | 2回 | $150000 | gg_gopostal：入金＋精算通知 |
+| daily_taxi | お客様を目的地へ | 2回 | $150000 | gg_taxijob：入金＋精算通知 |
+| daily_gruppe | 大切な荷物を守る | 1回 | $150000 | gg_gruppejob：入金＋精算通知 |
+| daily_fishing | 今日の水揚げ | 1回 | $150000 | pug-fishing：入金＋精算通知 |
+| daily_hunting | 狩りの成果 | 1回 | $150000 | wais-hunting：入金＋精算通知 |
+| daily_construction | 街づくりに参加 | 1回 | $150000 | tw-builderjob：完了通知 |
+| daily_cleaning | 高圧洗浄の日 | 1回 | $150000 | kq_powerwashing：完了通知 |
+| daily_recycle | 資源を次の誰かへ | 5箱 | $150000 | jim-recycle：完了通知 |
+| daily_house | ひと仕事して脱出 | 1回 | $150000 | satou_houserobbery：完了通知 |
+| daily_boosting | ターゲット車両を届ける | 1回 | $150000 | gg_boosting：完了通知 |
 
 ## ウィークリー候補（20種類）
 
 | ID | クエスト | 目標 | 銀行報酬 | 判定元 |
 | --- | --- | --- | ---: | --- |
-| weekly_visits | 今週の常連 | 3日 | $5000 | Qboxのキャラクター参加 |
-| weekly_time | 街と過ごす一週間 | 180分 | $10000 | サーバー接続時間 |
-| weekly_meals | 一週間の食卓 | 15回 | $5000 | ox_inventoryの使用完了 |
-| weekly_walk | 一週間の街歩き | 7km | $6000 | OneSyncのサーバー位置観測 |
-| weekly_cycle | サイクリング週間 | 20km | $8000 | OneSyncのサーバー位置観測 |
-| weekly_drive | 街をつなぐドライバー | 60km | $8000 | OneSyncのサーバー位置観測 |
-| weekly_duty | 一週間のお仕事 | 180分 | $10000 | Qboxの出勤状態 |
-| weekly_bus | バス運行の一週間 | 5回 | $10000 | gg_busjob：入金＋精算通知 |
-| weekly_garbage | ごみ回収のエキスパート | 5回 | $10000 | gg_garbagejob：入金＋精算通知 |
-| weekly_electrician | 電気設備を守る | 10回 | $10000 | gg_electricianjob：入金＋精算通知 |
-| weekly_postal | 配達の頼れる人 | 10回 | $10000 | gg_gopostal：入金＋精算通知 |
-| weekly_taxi | 今週のタクシードライバー | 12回 | $10000 | gg_taxijob：入金＋精算通知 |
-| weekly_gruppe | 現金輸送のプロ | 5回 | $12000 | gg_gruppejob：入金＋精算通知 |
-| weekly_fishing | 一週間の漁獲便り | 5回 | $8000 | pug-fishing：入金＋精算通知 |
-| weekly_hunting | ハンターの一週間 | 5回 | $10000 | wais-hunting：入金＋精算通知 |
-| weekly_construction | 今週の建築クルー | 4回 | $12000 | tw-builderjob：完了通知 |
-| weekly_cleaning | 街を磨く一週間 | 4回 | $10000 | kq_powerwashing：完了通知 |
-| weekly_recycle | 循環する街 | 30箱 | $8000 | jim-recycle：完了通知 |
-| weekly_house | 家強盗の一週間 | 3回 | $12000 | satou_houserobbery：完了通知 |
-| weekly_boosting | 今週のブースティング | 3回 | $14000 | gg_boosting：完了通知 |
+| weekly_visits | 今週の常連 | 3日 | $500000 | Qboxのキャラクター参加 |
+| weekly_time | 街と過ごす一週間 | 180分 | $500000 | サーバー接続時間 |
+| weekly_meals | 一週間の食卓 | 15回 | $500000 | ox_inventoryの使用完了 |
+| weekly_walk | 一週間の街歩き | 7km | $500000 | OneSyncのサーバー位置観測 |
+| weekly_cycle | サイクリング週間 | 20km | $500000 | OneSyncのサーバー位置観測 |
+| weekly_drive | 街をつなぐドライバー | 60km | $500000 | OneSyncのサーバー位置観測 |
+| weekly_duty | 一週間のお仕事 | 180分 | $500000 | Qboxの出勤状態 |
+| weekly_bus | バス運行の一週間 | 5回 | $500000 | gg_busjob：入金＋精算通知 |
+| weekly_garbage | ごみ回収のエキスパート | 5回 | $500000 | gg_garbagejob：入金＋精算通知 |
+| weekly_electrician | 電気設備を守る | 10回 | $500000 | gg_electricianjob：入金＋精算通知 |
+| weekly_postal | 配達の頼れる人 | 10回 | $500000 | gg_gopostal：入金＋精算通知 |
+| weekly_taxi | 今週のタクシードライバー | 12回 | $500000 | gg_taxijob：入金＋精算通知 |
+| weekly_gruppe | 現金輸送のプロ | 5回 | $500000 | gg_gruppejob：入金＋精算通知 |
+| weekly_fishing | 一週間の漁獲便り | 5回 | $500000 | pug-fishing：入金＋精算通知 |
+| weekly_hunting | ハンターの一週間 | 5回 | $500000 | wais-hunting：入金＋精算通知 |
+| weekly_construction | 今週の建築クルー | 4回 | $500000 | tw-builderjob：完了通知 |
+| weekly_cleaning | 街を磨く一週間 | 4回 | $500000 | kq_powerwashing：完了通知 |
+| weekly_recycle | 循環する街 | 30箱 | $500000 | jim-recycle：完了通知 |
+| weekly_house | 家強盗の一週間 | 3回 | $500000 | satou_houserobbery：完了通知 |
+| weekly_boosting | 今週のブースティング | 3回 | $500000 | gg_boosting：完了通知 |
 
 ## 数え方
 

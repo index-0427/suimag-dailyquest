@@ -5,12 +5,13 @@ Config.Activities.delivery={resources={['delivery-job']=true},maxAmount=1}
 for _,period in ipairs({'daily','weekly'}) do
     Config.Quests[#Config.Quests+1]={
         id=period..'_delivery',period=period,metric='activity',activity='delivery',target=3,
-        title='delivery',description='delivery',reward={type='item',name='water',amount=2},
+        title='delivery',description='delivery',
     }
 end
 dofile('server/store.lua')
 dofile('server/selection.lua')
 dofile('server/boards.lua')
+dofile('server/bonuses.lua')
 local plans, selected = {}, nil
 MySQL={transaction={await=function(queries) plans[selected]=plans[selected] or {};for _,q in ipairs(queries) do plans[selected][#plans[selected]+1]=q end;return true end}}
 local function plan(name,fn) selected=name;fn() end
@@ -30,7 +31,7 @@ DQStore.open=function(cid,now)
                 slot=slot+1
                 queries[#queries+1]={query=DQStore.sql.assign,values={quest.id,slot,period.start,nonce,cid,kind,period.start,nonce}}
                 queries[#queries+1]={query=DQStore.sql.ensureAssigned,values={
-                    cid,quest.id,kind,period.start,period.finish,quest.target,quest.reward.type,quest.reward.name or '',quest.reward.amount,
+                    cid,quest.id,kind,period.start,period.finish,quest.target,DQ.reward(quest.period).type,'',DQ.reward(quest.period).amount,
                     cid,kind,period.start,nonce}}
                 assignments[quest.id]={period_start=period.start,assigned_at=period.start}
             end
@@ -143,6 +144,11 @@ fakeBoards.daily=nil
 plan('board_next_day',function() assert(DQStore.ensureBoards('DRAW',prefs,data,state,now+86400)) end)
 fakeBoards={}
 plan('board_next_week',function() assert(DQStore.ensureBoards('DRAW',prefs,data,state,now+604800)) end)
+plan('board_open_rewards',function()
+    local assignments={}
+    realOpen('DRAW',now,assignments)
+end)
+plan('board_open_rewards_next_day',function() realOpen('DRAW',now+86400,{}) end)
 local boardMeta={daily=selectedDaily,weekly=selectedWeekly,dailyReplacement=replacementDaily,weeklyReplacement=replacementWeekly}
 local function encode(v)
     if type(v)=='number' then return tostring(v) end

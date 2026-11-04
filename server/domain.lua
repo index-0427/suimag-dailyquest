@@ -20,6 +20,10 @@ function DQ.validate(config)
     assert(DQ.integer(config.Reset.hour, 0, 23), 'Invalid reset hour')
     assert(DQ.integer(config.Reset.weekDay, 1, 7), 'Invalid reset weekday')
     assert(type(config.AutoCreateTables) == 'boolean', 'Invalid AutoCreateTables')
+    assert(type(config.Rewards)=='table' and (config.Rewards.account=='bank' or config.Rewards.account=='cash'), 'Invalid reward account')
+    for _,kind in ipairs({'daily','dailyComplete','weekly'}) do
+        assert(DQ.integer(config.Rewards[kind],1,10000000), 'Invalid common reward amount')
+    end
     for name, value in pairs(config.Consumables) do
         assert(DQ.identifier(name) and value == true, 'Invalid consumable')
     end
@@ -90,11 +94,7 @@ function DQ.validate(config)
         for name, allowed in pairs(req.types or {}) do
             assert(type(name)=='string' and #name>0 and #name<=64 and allowed==true, 'Invalid required job type')
         end
-        local reward = quest.reward
-        assert(type(reward) == 'table' and (reward.type == 'bank' or reward.type == 'cash'
-            or reward.type == 'item'), 'Invalid reward type')
-        assert(DQ.integer(reward.amount, 1, 10000000), 'Invalid reward amount')
-        assert(reward.type ~= 'item' or DQ.identifier(reward.name), 'Invalid reward item')
+        assert(quest.reward == nil, 'Configure rewards centrally in Config.Rewards')
         definitions[quest.id] = quest
     end
     return definitions
@@ -135,4 +135,10 @@ function DQ.elapsed(last, now, timer, maxSeconds)
     local wall = now - last.wall
     if seconds < 0 or seconds > maxSeconds or wall < 0 or math.abs(wall - seconds) > 2 then return nil end
     return wall
+end
+
+-- A fresh value prevents accidental per-quest overrides or mutations of shared configuration.
+function DQ.reward(kind)
+    assert(kind=='daily' or kind=='weekly' or kind=='dailyComplete', 'Invalid reward kind')
+    return {type=Config.Rewards.account,amount=Config.Rewards[kind]}
 end

@@ -62,6 +62,19 @@ local function receive(quest)
 end
 
 
+
+local function receiveBonus(bonus)
+    if busy then return end
+    local operation={}
+    busy=operation
+    local result=request('claimBonus',bonus.periodStart)
+    if busy==operation then busy=false end
+    if result.error=='cancelled' then return end
+    if result.ok then
+        lib.notify({title='デイリー全クリア報酬',description=bonus.reward..' を受け取りました。',type='success'})
+    else notify(result) end
+    open('daily')
+end
 local function configure(data)
     if busy then return end
     local operation,epoch={kind='preferences'},generation
@@ -160,6 +173,19 @@ local function render(data, selected)
                         or quest.canReroll and function() reroll(quest) end or nil,
                 }
             end
+        end
+        if kind=='daily' and data.dailyBonus then
+            local bonus=data.dailyBonus
+            local state=bonus.status=='claimed' and '受取済み' or bonus.status=='pending' and '確認待ち'
+                or bonus.canClaim and '受け取る' or '未達成'
+            options[#options+1]={
+                title='デイリー全クリア報酬 · '..state,
+                description=('%d / %d件クリア  •  追加 %s'):format(bonus.completed,bonus.total,bonus.reward),
+                icon=bonus.status=='claimed' and 'circle-check' or bonus.status=='pending' and 'hourglass-half' or 'award',
+                progress=math.min(100,bonus.completed/bonus.total*100),colorScheme='teal',
+                readOnly=not bonus.canClaim,
+                onSelect=bonus.canClaim and function() receiveBonus(bonus) end or nil,
+            }
         end
         if total == 0 then options[#options + 1] = { title = 'クエストはありません', readOnly = true } end
         options[#options + 1] = { title = '進捗を更新', icon = 'rotate', onSelect = function() open(kind) end }

@@ -6,7 +6,7 @@ F11 または `/dailyquest` で ox_lib のメニューを開き、進捗を確�
 - 日次20候補から3件・週次20候補から2件をキャラクター別に抽選。日次は短時間枠を最低1件
 - 日次は毎日 **JST 05:00**、週次は **月曜 JST 05:00** に更新。サーバーOSのタイムゾーンに依存しない
 - 初回の属性設定、犯罪／職業・所属必須の除外、未達成1件を日次・週次各1回リロール
-- 金銭（銀行／現金）または ox_inventory のアイテム報酬
+- 共通の銀行報酬：デイリー1件15万、全クリア追加20万、ウィークリー1件50万
 - 進捗と受取状態を専用SQLテーブルに保存。再接続・リソース再起動後も継続
 - 同時受取をSQLの条件付き更新で排他。結果不明の配布は保留し、自動で再配布しない
 - 既存ジョブの自動連携、永続クールダウン、新規連携向けexportと完了IDによる重複排除
@@ -20,9 +20,9 @@ F11 または `/dailyquest` で ox_lib のメニューを開き、進捗を確�
 釣り、狩猟、建築、高圧洗浄、リサイクル、家強盗、ブースティングを収録しています。
 
 報酬は提示されたクエストを達成した場合に受け取れます。抽選結果は再接続・再起動でも保持します。
-既存6件のID・条件・報酬は維持しています。詳しいルールは [抽選とリロール](docs/selection.md) を参照してください。
+クエストのID・条件を維持し、報酬は期間ごとの共通設定に統一しています。詳しいルールは [抽選とリロール](docs/selection.md) を参照してください。
 職業への所属や仕事・犯罪の参加条件が必要なクエストもあり、全件達成は必須ではありません。
-金額はテスト導入用の初期値です。経済への影響を確認して config.lua で調整してください。
+初期設定では、日次全クリアで合計65万、週次2件で合計100万です。全クリア報酬はデイリー画面の専用項目から1日1回受け取れます。
 接続時間には離席を含み、キャラクター選択画面・オフライン時間は含みません。導入前の実績は遡及しません。
 接続したまま午前5時をまたいだ場合も新しい日の参加として数えます。
 期限までに手動で受け取らなかった報酬は失効します。
@@ -35,7 +35,7 @@ OneSync有効環境で使用します。必要なリソース: `oxmysql` / `ox_l
 1. リポジトリを **suimag-dailyquest** というフォルダ名で配置します。単一インスタンスのみ対応します。
 2. 旧バトルパスとその連携リソースの起動指定を整理します。`ensure [standalone]` などのカテゴリ起動にも注意してください。
 3. 依存リソース・カテゴリ起動の後に下記を設定します。同じ依存の ensure を追加する必要はありません。
-4. 起動時に `sql/schema.sql` の専用7テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
+4. 起動時に `sql/schema.sql` の専用8テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
 5. コンソールで `dailyquest_status`、ゲーム内で `/dailyquest` を確認します。
 
 ```cfg
@@ -52,7 +52,7 @@ ensure suimag-dailyquest
 このリポジトリの実装・ローカル検証では **接続先への配置、DB操作、stop/ensure/restartは実行していません**。
 実機導入手順と確認項目は [運用・受入確認](docs/operations.md) にあります。
 
-1.1.0以前から更新する場合は preferences / boards / assignments テーブルも必要です。自動作成が無効なら sql/schema.sql を再適用してください。
+1.3.0では全クリア報酬用の bonuses テーブルを追加します。自動作成が無効なら sql/schema.sql を再適用してください。1.1.0以前からは preferences / boards / assignments も必要です。
 
 ## 設定
 
@@ -62,13 +62,24 @@ ensure suimag-dailyquest
 - `period`: `daily` / `weekly`
 - `metric`: `attendance`（参加日数）/ `playtime`（秒）/ `consume`（使用回数）/ `distance`（移動距離m）/ `duty`（勤務秒）/ `activity`（外部連携）
 - `target`: 正の整数。参加日数は日次1、週次最大7
-- `reward`: `{ type = 'bank', amount = 1000 }`、`{ type = 'cash', amount = 1000 }`、
-  または `{ type = 'item', name = 'water', amount = 2 }`
 - 飲食対象は `Config.Consumables` の実在するアイテム名を指定。現在は対応環境で確認した `water` / `burger` のみ
 - `Config.Key` の初期値は `F11`。別のキーに変更でき、`nil` にするとキー登録を無効化
 
-**目標値・報酬は各キャラクターのその期間の初回記録時に固定**されます。途中で設定を変更しても作成済みレコードには反映しません。
-期間途中の変更では、まだ記録のないキャラクターに新設定が適用されます。全員を揃える変更は更新時刻に行ってください。
+報酬は Config.Rewards のみで設定します。個別クエストに reward を書くと設定エラーになります。
+
+```lua
+Config.Rewards = {
+    account = 'bank',
+    daily = 150000,
+    dailyComplete = 200000,
+    weekly = 500000,
+}
+```
+
+目標値は各キャラクターの期間初回記録時に固定します。
+報酬設定の変更はリソース再起動後、キャラクターの読込時に未受取（active）の当期レコードへ適用します。
+受取済み（claimed）と成否確認待ち（pending）は元の金額を維持し、差額の自動補填はしません。
+全クリア報酬も同じ扱いです。詳しくは [共通報酬](docs/rewards.md) を参照してください。
 `id / period / metric / activity / tags / requirements / quick / Reset` を運用中に書き換えると期間の解釈が変わるため、停止して移行方針を決めてください。
 タイトル・説明・飲食対象の変更は即時反映されるため、進行中の条件と食い違わないようにします。
 削除したクエストは表示・受取対象から外れますが、保存記録は残ります。
@@ -87,7 +98,6 @@ Config.Quests[#Config.Quests + 1] = {
     id = 'daily_delivery', period = 'daily',
     metric = 'activity', activity = 'delivery', target = 3,
     title = '配達のお仕事', description = '配達を3回完了する。', unit = '回',
-    reward = { type = 'item', name = 'water', amount = 2 },
 }
 ```
 
@@ -118,8 +128,8 @@ exports['suimag-dailyquest']:OpenQuests()
 
 ## 保存と障害時の扱い
 
-専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_events`、`suimag_dailyquest_signal_gates`、`suimag_dailyquest_preferences`、`suimag_dailyquest_boards`、`suimag_dailyquest_assignments` です。
-既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの7テーブルもバックアップしてください。
+専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_events`、`suimag_dailyquest_signal_gates`、`suimag_dailyquest_preferences`、`suimag_dailyquest_boards`、`suimag_dailyquest_assignments`、`suimag_dailyquest_bonuses` です。
+既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの8テーブルもバックアップしてください。
 
 接続時間は約15秒ごとに保存します。切断・正常停止・強制終了で最後の未保存区間を失う場合があります。
 DB障害で結果不明の時間加算は再送しません。長いサーバーストールや時計の大幅な変化中の時間も加算しません。
@@ -127,7 +137,7 @@ DB障害で結果不明の時間加算は再送しません。長いサーバー
 
 報酬受取は `active → pending → claimed`。明確な付与失敗のみ `active` に戻します。
 例外・プロセス停止などで成否不明なら `pending` を保持し、自動再配布しません。
-満杯のインベントリは受取権を消費しません。期限内に空きを作れば再試行できます。
+新規報酬は共通の金銭報酬です。旧版の保存済みアイテム報酬の処理は互換性のため残しています。
 
 Qboxの所持金保存・ox_inventoryの保存と当リソースのSQLは**同一トランザクションではありません**。
 報酬プロバイダーの成功後も、サーバー全体の強制終了ではプロバイダー側の保存が間に合わない場合があります。

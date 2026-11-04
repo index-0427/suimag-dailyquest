@@ -135,6 +135,19 @@ local function snapshot(source)
     return run(source, function(session, now)
         if not session.preferences then return {ok=true,needsSetup=true,quests={}} end
         local rows, quests = DQStore.list(session.citizenid, now), {}
+        local bonusRow=DQStore.bonusState(session.citizenid,DQ.period('daily',now,Config.Reset).start)
+        local bonus
+        if bonusRow then
+            local total=tonumber(bonusRow.required_count)
+            local completed=tonumber(bonusRow.completed_count)
+            assert(DQ.integer(total,1,20) and DQ.integer(completed,0,20),'Invalid daily bonus counts')
+            bonus={
+                periodStart=tonumber(bonusRow.period_start),status=bonusRow.status,
+                total=total,completed=completed,
+                reward=('%s $%d'):format(bonusRow.reward_type=='bank' and '銀行' or '現金',bonusRow.reward_amount),
+                canClaim=bonusRow.status=='active' and tonumber(bonusRow.assigned_count)==total and completed==total,
+            }
+        end
         if not current(source, session) then return { ok = false, error = 'player_unavailable' } end
         local byId = {}
         for _, row in ipairs(rows) do
@@ -170,7 +183,7 @@ local function snapshot(source)
             end
         end
         return {
-            ok=true,quests=quests,now=now,preferences=session.preferences,
+            ok=true,quests=quests,now=now,preferences=session.preferences,dailyBonus=bonus,
             drawError=session.drawError,
             rerolls={daily=session.boards.daily and 1-tonumber(session.boards.daily.rerolls_used) or 0,
                 weekly=session.boards.weekly and 1-tonumber(session.boards.weekly.rerolls_used) or 0},
@@ -178,6 +191,41 @@ local function snapshot(source)
             weeklyReset = DQ.resetLabel(DQ.period('weekly', now, Config.Reset).finish, Config.Reset),
         }
     end,true)
+end
+
+local function deliverReserved(source,session,row,kind)
+    local bonus=kind=='daily_bonus'
+    local release=bonus and DQStore.releaseBonus or DQStore.release
+    local finish=bonus and DQStore.finishBonus or DQStore.finish
+    local claimKey=bonus and ('bonus:'..row.id) or row.id
+    -- No reward may be issued after a DB yield without checking identity and expiry again.
+    if not current(source, session) or os.time() >= row.ends_at or conflict() then
+        release(row.id)
+        return { ok = false, error = 'claim_unavailable' }
+    end
+    log(('Claim %s reserved for %s / %s'):format(claimKey, session.citizenid, row.quest_id or kind))
+    local ok, delivered = pcall(function()
+        if row.reward_type == 'item' then
+            return exports.ox_inventory:AddItem(source, row.reward_name, row.reward_amount)
+        end
+        return exports.qbx_core:AddMoney(source, row.reward_type, row.reward_amount, 'dailyquest:' .. claimKey)
+    end)
+    if ok and delivered == false then
+        -- The provider explicitly rejected the operation without delivering a reward.
+        release(row.id)
+        return { ok = false, error = 'reward_failed' }
+    end
+    if not ok or delivered ~= true then
+        log(('Claim %s is PENDING: reward outcome unknown; do not automatically retry.'):format(claimKey))
+        return { ok = false, error = 'pending', claimId = claimKey }
+    end
+    log(('Claim %s reward provider returned success.'):format(claimKey))
+    local saved, err = pcall(finish, row.id, os.time())
+    if not saved then
+        log(('Claim %s is PENDING after delivery: %s'):format(claimKey, tostring(err)))
+        return { ok = false, error = 'pending', claimId = claimKey }
+    end
+    return { ok = true }
 end
 
 local function claim(source, questId, periodStart)
@@ -205,36 +253,30 @@ local function claim(source, questId, periodStart)
         if not DQStore.reserve(session.citizenid, row.id, os.time()) then
             return { ok = false, error = 'claim_unavailable' }
         end
-        -- No reward may be issued after a DB yield without checking identity and expiry again.
-        if not current(source, session) or os.time() >= row.ends_at or conflict() then
-            DQStore.release(row.id)
-            return { ok = false, error = 'claim_unavailable' }
-        end
-        log(('Claim %s reserved for %s / %s'):format(row.id, session.citizenid, questId))
-        local ok, delivered = pcall(function()
-            if row.reward_type == 'item' then
-                return exports.ox_inventory:AddItem(source, row.reward_name, row.reward_amount)
-            end
-            return exports.qbx_core:AddMoney(source, row.reward_type, row.reward_amount, 'dailyquest:' .. row.id)
-        end)
-        if ok and delivered == false then
-            -- The provider explicitly rejected the operation without delivering a reward.
-            DQStore.release(row.id)
-            return { ok = false, error = 'reward_failed' }
-        end
-        if not ok or delivered ~= true then
-            log(('Claim %s is PENDING: reward outcome unknown; do not automatically retry.'):format(row.id))
-            return { ok = false, error = 'pending', claimId = row.id }
-        end
-        log(('Claim %s reward provider returned success.'):format(row.id))
-        local saved, err = pcall(DQStore.finish, row.id, os.time())
-        if not saved then
-            log(('Claim %s is PENDING after delivery: %s'):format(row.id, tostring(err)))
-            return { ok = false, error = 'pending', claimId = row.id }
-        end
-        return { ok = true }
+        return deliverReserved(source,session,row,'quest')
     end)
 end
+
+
+lib.callback.register(prefix..'claimBonus',function(source,periodStart)
+    if not rateLimit(source,'claimBonus') then return {ok=false,error='rate_limited'} end
+    if not DQ.integer(periodStart,0,4102444800) then return {ok=false,error='invalid_request'} end
+    return run(source,function(session,now)
+        if DQ.period('daily',now,Config.Reset).start~=periodStart then return {ok=false,error='expired'} end
+        local row=DQStore.bonusState(session.citizenid,periodStart)
+        if not row then return {ok=false,error='incomplete'} end
+        if row.status=='pending' then return {ok=false,error='pending',claimId='bonus:'..row.id} end
+        if row.status=='claimed' then return {ok=false,error='claimed'} end
+        if tonumber(row.assigned_count)~=tonumber(row.required_count)
+            or tonumber(row.completed_count)~=tonumber(row.required_count) then return {ok=false,error='incomplete'} end
+        assert(DQ.integer(tonumber(row.required_count),1,20),'Invalid saved bonus requirement')
+        assert(DQ.integer(row.reward_amount,1,10000000),'Invalid saved bonus amount')
+        assert(row.reward_type=='bank' or row.reward_type=='cash','Invalid saved bonus account')
+        if not current(source,session) then return {ok=false,error='player_unavailable'} end
+        if not DQStore.reserveBonus(session.citizenid,row.id,os.time()) then return {ok=false,error='claim_unavailable'} end
+        return deliverReserved(source,session,row,'daily_bonus')
+    end)
+end)
 
 lib.callback.register(prefix .. 'list', function(source)
     if not rateLimit(source, 'list') then return { ok = false, error = 'rate_limited' } end

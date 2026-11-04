@@ -109,7 +109,7 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(statement("ensure", ["SQLTEST", "daily_visit", "daily", 1793736000,
                                     1793822400, 99, "cash", "", 999999]))
         eq(value("daily_visit", "target"), "1", "target snapshot")
-        eq(value("daily_visit", "reward_amount"), "1000", "reward snapshot")
+        eq(value("daily_visit", "reward_amount"), "150000", "reward snapshot")
         eq(value("daily_visit", "reward_type"), "bank", "reward type snapshot")
         # Real concurrent UPDATEs must reserve exactly once.
         claim_id = int(value("daily_visit", "id"))
@@ -280,6 +280,91 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(board_plan("board_next_week"))
         eq(scalar("SELECT rerolls_used FROM suimag_dailyquest_boards WHERE citizenid='DRAW' AND period_kind='weekly' AND period_start=1794168000;"),"0","weekly reset restores one reroll")
         eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_assignments WHERE citizenid='DRAW' AND period_kind='weekly' AND period_start=1794168000 AND active=1;"),"2","new week gets two assignments")
+        # Common rewards and the daily all-clear ledger use actual assignment rows.
+        execute(board_plan("board_open_rewards"))
+        day = 1793736000
+
+        def bonus_value(column, owner="DRAW", start=day):
+            return scalar(f"SELECT {column} FROM suimag_dailyquest_bonuses WHERE citizenid='{owner}' AND period_start={start};")
+
+        bonus_id = int(bonus_value("id"))
+        eq(bonus_value("required_count"),"3","bonus freezes the required slot count")
+        eq(bonus_value("reward_amount"),"200000","daily completion amount")
+        eq(scalar("SELECT GROUP_CONCAT(DISTINCT reward_amount) FROM suimag_dailyquest_progress p JOIN suimag_dailyquest_assignments a "
+                  "ON a.citizenid=p.citizenid AND a.quest_id=p.quest_id AND a.period_start=p.period_start "
+                  "WHERE p.citizenid='DRAW' AND p.period_kind='daily' AND p.period_start=1793736000 AND a.active=1;"),
+           "150000","all selected daily rewards are uniform")
+        eq(scalar("SELECT GROUP_CONCAT(DISTINCT reward_amount) FROM suimag_dailyquest_progress p JOIN suimag_dailyquest_assignments a "
+                  "ON a.citizenid=p.citizenid AND a.quest_id=p.quest_id AND a.period_start=p.period_start "
+                  "WHERE p.citizenid='DRAW' AND p.period_kind='weekly' AND p.period_start=1793563200 AND a.active=1;"),
+           "500000","all selected weekly rewards are uniform")
+        reserve_bonus = statement("reserveBonus",[1793736110,bonus_id,"DRAW",1793736110])
+        eq(scalar(reserve_bonus+";SELECT ROW_COUNT();"),"0","partial completion cannot claim bonus")
+        execute("UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='DRAW' AND period_kind='weekly';")
+        execute(f"UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='DRAW' AND quest_id='{meta['daily']}';")
+        eq(scalar(reserve_bonus+";SELECT ROW_COUNT();"),"0","weekly and retired quests do not count")
+        execute("UPDATE suimag_dailyquest_progress p JOIN suimag_dailyquest_assignments a "
+                "ON a.citizenid=p.citizenid AND a.quest_id=p.quest_id AND a.period_start=p.period_start "
+                "SET p.progress=p.target WHERE p.citizenid='DRAW' AND p.period_kind='daily' "
+                "AND p.period_start=1793736000 AND a.active=1 AND a.slot<=2;")
+        eq(scalar(reserve_bonus+";SELECT ROW_COUNT();"),"0","two out of three is insufficient")
+        execute("UPDATE suimag_dailyquest_progress p JOIN suimag_dailyquest_assignments a "
+                "ON a.citizenid=p.citizenid AND a.quest_id=p.quest_id AND a.period_start=p.period_start "
+                "SET p.progress=p.target WHERE p.citizenid='DRAW' AND p.period_kind='daily' AND p.period_start=1793736000 AND a.active=1;")
+        eq(execute(statement("bonusState",["DRAW",day])).stdout.strip().split("\t")[-2:],["3","3"],"bonus state counts exactly current slots")
+        eq(scalar(statement("reserveBonus",[1793736110,bonus_id,"OTHER",1793736110])+";SELECT ROW_COUNT();"),"0","bonus character isolation")
+        # A corrupt/extra active slot cannot make the completion condition easier.
+        execute(f"UPDATE suimag_dailyquest_assignments SET active=1 WHERE citizenid='DRAW' AND quest_id='{meta['daily']}' AND period_start={day};")
+        eq(scalar(reserve_bonus+";SELECT ROW_COUNT();"),"0","unexpected assignment count rejects bonus")
+        execute(f"UPDATE suimag_dailyquest_assignments SET active=0 WHERE citizenid='DRAW' AND quest_id='{meta['daily']}' AND period_start={day};")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results=list(pool.map(lambda _:scalar(reserve_bonus+";SELECT ROW_COUNT();"),range(8)))
+        eq(sorted(results),["0"]*7+["1"],"only one concurrent bonus reservation")
+        eq(bonus_value("status"),"pending","bonus reservation survives connection changes")
+        eq("daily_bonus" in execute(SQL["pending"]).stdout,True,"bonus appears in pending diagnostics")
+        execute(statement("syncBonusReward",["bank",999999,"DRAW",1793736110,1793736110]))
+        eq(bonus_value("reward_amount"),"200000","pending bonus amount is immutable")
+        execute(statement("releaseBonus",[bonus_id]))
+        eq(bonus_value("status"),"active","explicit provider failure restores bonus eligibility")
+        execute(statement("syncBonusReward",["bank",210000,"DRAW",1793736110,1793736110]))
+        eq(bonus_value("reward_amount"),"210000","unclaimed bonus accepts common reward update")
+        execute(board_plan("board_open_rewards"))
+        eq(bonus_value("reward_amount"),"200000","common configuration reapplied")
+        eq(scalar(reserve_bonus+";SELECT ROW_COUNT();"),"1","failed provider can retry bonus")
+        execute(statement("finishBonus",[1793736111,bonus_id]))
+        eq(bonus_value("status"),"claimed","bonus finalization")
+        execute(statement("syncBonusReward",["bank",999999,"DRAW",1793736110,1793736110]))
+        eq(bonus_value("reward_amount"),"200000","claimed bonus amount is immutable")
+        eq(scalar(reserve_bonus+";SELECT ROW_COUNT();"),"0","claimed bonus cannot repeat")
+        # Existing paid/pending per-quest amounts are never overwritten by common reward refresh.
+        chosen=scalar("SELECT quest_id FROM suimag_dailyquest_assignments WHERE citizenid='DRAW' AND period_kind='daily' "
+                      "AND period_start=1793736000 AND active=1 ORDER BY slot;").splitlines()
+        for qid,status,amount in zip(chosen,["claimed","pending","active"],[1111,2222,3333]):
+            execute(f"UPDATE suimag_dailyquest_progress SET status='{status}',reward_amount={amount} WHERE citizenid='DRAW' AND quest_id='{qid}' AND period_start={day};")
+        execute(board_plan("board_open_rewards"))
+        amounts=scalar("SELECT p.reward_amount FROM suimag_dailyquest_progress p JOIN suimag_dailyquest_assignments a "
+                       "ON a.citizenid=p.citizenid AND a.quest_id=p.quest_id AND a.period_start=p.period_start "
+                       "WHERE p.citizenid='DRAW' AND p.period_kind='daily' AND p.period_start=1793736000 AND a.active=1 ORDER BY a.slot;")
+        eq(amounts.splitlines(),["1111","2222","150000"],"only unclaimed quest amounts change")
+        # The next day gets a separate bonus and requires new completion.
+        execute(board_plan("board_open_rewards_next_day"))
+        next_bonus=int(bonus_value("id",start=1793822400))
+        eq(next_bonus!=bonus_id,True,"next day uses a different bonus record")
+        eq(bonus_value("status",start=1793822400),"active","next day bonus is unclaimed")
+        eq(scalar(statement("reserveBonus",[1793822500,next_bonus,"DRAW",1793822500])+";SELECT ROW_COUNT();"),"0","yesterday completion does not unlock today")
+        execute("UPDATE suimag_dailyquest_progress p JOIN suimag_dailyquest_assignments a "
+                "ON a.citizenid=p.citizenid AND a.quest_id=p.quest_id AND a.period_start=p.period_start "
+                "SET p.progress=p.target WHERE p.citizenid='DRAW' AND p.period_kind='daily' AND p.period_start=1793822400 AND a.active=1;")
+        eq(scalar(statement("reserveBonus",[1793822500,next_bonus,"DRAW",1793822500])+";SELECT ROW_COUNT();"),"1","today completion unlocks today bonus")
+        execute(statement("finishBonus",[1793822501,next_bonus]))
+        # Expired active bonuses are not claimable even if the player completed all tasks.
+        execute(board_plan("board_draw","EXPIRED_BONUS"))
+        execute(board_plan("board_open_rewards","EXPIRED_BONUS"))
+        execute("UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='EXPIRED_BONUS';")
+        expired_id=int(bonus_value("id",owner="EXPIRED_BONUS"))
+        eq(scalar(statement("reserveBonus",[1793822400,expired_id,"EXPIRED_BONUS",1793822400])+";SELECT ROW_COUNT();"),"0","expired bonus rejected")
+        execute(board_plan("board_open_rewards"))
+        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_bonuses WHERE citizenid='DRAW' AND period_start=1793736000;"),"1","opening repeatedly never duplicates a bonus")
         print(f"sql: {checks} assertions passed (isolated MariaDB, no network)")
     finally:
         daemon.terminate()

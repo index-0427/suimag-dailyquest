@@ -73,3 +73,19 @@ CREATE TABLE IF NOT EXISTS suimag_dailyquest_assignments (
     KEY current_slots (citizenid, period_kind, period_start, active, slot),
     KEY assigned_progress (citizenid, quest_id, period_start, active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS suimag_dailyquest_bonuses (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    citizenid VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    period_start BIGINT UNSIGNED NOT NULL,
+    ends_at BIGINT UNSIGNED NOT NULL,
+    required_count TINYINT UNSIGNED NOT NULL,
+    reward_type ENUM('bank', 'cash') NOT NULL,
+    reward_amount INT UNSIGNED NOT NULL,
+    status ENUM('active', 'pending', 'claimed') NOT NULL DEFAULT 'active',
+    attempted_at BIGINT UNSIGNED NULL,
+    claimed_at BIGINT UNSIGNED NULL,
+    PRIMARY KEY (id),
+    UNIQUE KEY character_day (citizenid, period_start),
+    KEY pending_bonuses (status, attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

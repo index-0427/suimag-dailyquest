@@ -11,39 +11,34 @@ Config.ConsumeCooldownSeconds = 3
 Config.Consumables = { water = true, burger = true }
 Config.ConflictingResources = { 'noob_battlepass', 'sky_battlepass', 'skybp_events' }
 
--- 一つのクエストにつき報酬は一種類。金額はテスト導入用の初期値。
+-- 報酬は全クエスト共通。デイリー3件で45万＋全クリア20万、ウィークリー2件で100万。
+Config.Rewards = { account='bank', daily=150000, dailyComplete=200000, weekly=500000 }
 -- 公開済みの id / period / metric を変えず、新しい条件は新しいidで追加する。
--- target / reward は期間内の初回作成時にDBへ固定され、変更は次の期間から適用。
+-- target は期間内の初回作成時に固定。共通報酬の変更は未受取(active)に適用し、保留・受取済みは維持。
 Config.Quests = {
     {
         id = 'daily_visit', period = 'daily', metric = 'attendance', target = 1,
         title = '今日の街歩き', description = 'キャラクターで街に参加する。', unit = '日',
-        reward = { type = 'bank', amount = 1000 },
     },
     {
         id = 'daily_time', period = 'daily', metric = 'playtime', target = 30 * 60,
         title = '街で過ごす30分', description = '今日、合計30分間接続する（離席時間を含む）。',
-        reward = { type = 'bank', amount = 3000 },
     },
     {
         id = 'daily_meals', period = 'daily', metric = 'consume', target = 3,
         title = '食事を忘れずに', description = '水またはバーガーを合計3回使用する。', unit = '回',
-        reward = { type = 'bank', amount = 2000 },
     },
     {
         id = 'weekly_visits', period = 'weekly', metric = 'attendance', target = 3,
         title = '今週の常連', description = '今週、異なる3日間に街に参加する。日付は午前5時に切り替わる。', unit = '日',
-        reward = { type = 'bank', amount = 5000 },
     },
     {
         id = 'weekly_time', period = 'weekly', metric = 'playtime', target = 3 * 60 * 60,
         title = '街と過ごす一週間', description = '今週、合計3時間接続する（離席時間を含む）。',
-        reward = { type = 'bank', amount = 10000 },
     },
     {
         id = 'weekly_meals', period = 'weekly', metric = 'consume', target = 15,
         title = '一週間の食卓', description = '今週、水またはバーガーを合計15回使用する。', unit = '回',
-        reward = { type = 'bank', amount = 5000 },
     },
 }
 
@@ -80,12 +75,12 @@ for _, rule in pairs(Config.Activities) do
 end
 
 -- 日次20種類・週次20種類。既存6件のIDと条件は維持。
-local function pair(id, metric, daily, weekly, titles, description, rewards, extra)
+local function pair(id, metric, daily, weekly, titles, description, extra)
     for i, period in ipairs({ 'daily', 'weekly' }) do
         local quest = {
             id=period .. '_' .. id, period=period, metric=metric,
             target=i == 1 and daily or weekly, title=titles[i],
-            description=description, reward={ type='bank', amount=rewards[i] },
+            description=description,
         }
         for key, value in pairs(extra or {}) do quest[key] = value end
         Config.Quests[#Config.Quests + 1] = quest
@@ -93,40 +88,40 @@ local function pair(id, metric, daily, weekly, titles, description, rewards, ext
 end
 
 pair('walk', 'distance', 1000, 7000, { '街角ウォーキング', '一週間の街歩き' },
-    '車に乗らず街を移動する。通常の歩行・走行をサーバーで計測する。', {1500,6000}, { mode='walk', unit='m' })
+    '車に乗らず街を移動する。通常の歩行・走行をサーバーで計測する。', { mode='walk', unit='m' })
 pair('cycle', 'distance', 3000, 20000, { 'ペダルをこいで', 'サイクリング週間' },
-    '自転車を運転して移動する。同乗・車両の乗換区間は対象外。', {2000,8000}, { mode='cycle', unit='m' })
+    '自転車を運転して移動する。同乗・車両の乗換区間は対象外。', { mode='cycle', unit='m' })
 pair('drive', 'distance', 8000, 60000, { '今日のドライブ', '街をつなぐドライバー' },
-    '自動車を運転して移動する。同乗・バイク・航空機は対象外。', {2000,8000}, { mode='drive', unit='m' })
+    '自動車を運転して移動する。同乗・バイク・航空機は対象外。', { mode='drive', unit='m' })
 pair('duty', 'duty', 30*60, 3*60*60, { '今日の勤務', '一週間のお仕事' },
-    'Qboxの職業で出勤して過ごす。無職・退勤中・死亡中は対象外。', {2500,10000})
+    'Qboxの職業で出勤して過ごす。無職・退勤中・死亡中は対象外。')
 
 pair('bus', 'activity', 1, 5, { '街の足を支える', 'バス運行の一週間' },
-    'バス業務の精算通知と入金を確認する。精算1回で進捗+1。', {2500,10000}, { activity='bus', unit='回' })
+    'バス業務の精算通知と入金を確認する。精算1回で進捗+1。', { activity='bus', unit='回' })
 pair('garbage', 'activity', 1, 5, { '街をきれいに', 'ごみ回収のエキスパート' },
-    'ごみ回収業務の精算通知と入金を確認する。精算1回で進捗+1。', {2500,10000}, { activity='garbage', unit='回' })
+    'ごみ回収業務の精算通知と入金を確認する。精算1回で進捗+1。', { activity='garbage', unit='回' })
 pair('electrician', 'activity', 2, 10, { '街に明かりを', '電気設備を守る' },
-    '電気工事業務の精算通知と入金を確認する。精算1回で進捗+1。', {2500,10000}, { activity='electrician', unit='回' })
+    '電気工事業務の精算通知と入金を確認する。精算1回で進捗+1。', { activity='electrician', unit='回' })
 pair('postal', 'activity', 2, 10, { '今日のお届けもの', '配達の頼れる人' },
-    '郵便配達の精算通知と入金を確認する。精算1回で進捗+1。', {2500,10000}, { activity='postal', unit='回' })
+    '郵便配達の精算通知と入金を確認する。精算1回で進捗+1。', { activity='postal', unit='回' })
 pair('taxi', 'activity', 2, 12, { 'お客様を目的地へ', '今週のタクシードライバー' },
-    'NPCタクシーのルートを終え、運賃の入金を受ける。', {2500,10000}, { activity='taxi', unit='回' })
+    'NPCタクシーのルートを終え、運賃の入金を受ける。', { activity='taxi', unit='回' })
 pair('gruppe', 'activity', 1, 5, { '大切な荷物を守る', '現金輸送のプロ' },
-    '現金輸送業務の精算通知と入金を確認する。精算1回で進捗+1。', {3000,12000}, { activity='gruppe', unit='回' })
+    '現金輸送業務の精算通知と入金を確認する。精算1回で進捗+1。', { activity='gruppe', unit='回' })
 pair('fishing', 'activity', 1, 5, { '今日の水揚げ', '一週間の漁獲便り' },
-    '釣りで手に入れた魚またはカニを売却して入金を受ける。宝石売却は対象外。', {2000,8000}, { activity='fishing', unit='回' })
+    '釣りで手に入れた魚またはカニを売却して入金を受ける。宝石売却は対象外。', { activity='fishing', unit='回' })
 pair('hunting', 'activity', 1, 5, { '狩りの成果', 'ハンターの一週間' },
-    '狩猟の売却・ミッションで精算通知と入金を受ける。獲得アイテム数では数えない。', {2500,10000}, { activity='hunting', unit='回' })
+    '狩猟の売却・ミッションで精算通知と入金を受ける。獲得アイテム数では数えない。', { activity='hunting', unit='回' })
 pair('construction', 'activity', 1, 4, { '街づくりに参加', '今週の建築クルー' },
-    '建築の仕事を完了し、支払い対象のクルーとして完了通知を受ける。', {3000,12000}, { activity='construction', unit='回' })
+    '建築の仕事を完了し、支払い対象のクルーとして完了通知を受ける。', { activity='construction', unit='回' })
 pair('cleaning', 'activity', 1, 4, { '高圧洗浄の日', '街を磨く一週間' },
-    '高圧洗浄の契約を完了し、サーバーの完了通知を受ける。', {2500,10000}, { activity='cleaning', unit='回' })
+    '高圧洗浄の契約を完了し、サーバーの完了通知を受ける。', { activity='cleaning', unit='回' })
 pair('recycle', 'activity', 5, 30, { '資源を次の誰かへ', '循環する街' },
-    'リサイクルの箱を回収・納品する。素材の個数ではなく箱の納品回数で数える。', {2000,8000}, { activity='recycle', unit='箱' })
+    'リサイクルの箱を回収・納品する。素材の個数ではなく箱の納品回数で数える。', { activity='recycle', unit='箱' })
 pair('house', 'activity', 1, 3, { 'ひと仕事して脱出', '家強盗の一週間' },
-    '戦利品を得てホストが脱出する家強盗を完了する。完了時の参加者が対象。', {3000,12000}, { activity='house', unit='回' })
+    '戦利品を得てホストが脱出する家強盗を完了する。完了時の参加者が対象。', { activity='house', unit='回' })
 pair('boosting', 'activity', 1, 3, { 'ターゲット車両を届ける', '今週のブースティング' },
-    'ブースティングを完了する。成功フックで通知されたグループ参加者が対象。', {3500,14000}, { activity='boosting', unit='回' })
+    'ブースティングを完了する。成功フックで通知されたグループ参加者が対象。', { activity='boosting', unit='回' })
 
 -- カタログから各期間に提示する件数。設定保存前は抽選・進捗加算をしない。
 Config.Draw = { daily=3, weekly=2 }

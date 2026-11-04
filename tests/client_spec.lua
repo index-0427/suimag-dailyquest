@@ -29,7 +29,7 @@ lib={
         if mode=='throw' then error('timeout') end
         if mode=='nil' then return nil end
         if mode=='conflict' then return {ok=false,error='conflict'} end
-        if name=='suimag-dailyquest:preferences' or name=='suimag-dailyquest:reroll' then return {ok=true} end
+        if name=='suimag-dailyquest:preferences' or name=='suimag-dailyquest:reroll' or name=='suimag-dailyquest:claimBonus' then return {ok=true} end
         if name=='suimag-dailyquest:claim' then
             if mode=='pending' then return {ok=false,error='pending',claimId=42} end
             return {ok=true}
@@ -156,4 +156,31 @@ eq(inputClosed,1)
 ok,result=coroutine.resume(dialog);assert(ok,result)
 eq(#requests,before,'stale dialog cannot mutate preferences')
 
+
+-- Daily completion bonus is a separate action, not a sixth quest or a weekly bonus.
+view.needsSetup=false;mode='ok';dialogMode='normal'
+view.dailyBonus={periodStart=123,completed=2,total=3,status='active',reward='銀行 $200000',canClaim=false}
+call(commands.dailyquest)
+local function bonusOption()
+    for _,option in ipairs(contexts[prefix..'daily'].options) do
+        if option.title:find('デイリー全クリア報酬',1,true) then return option end
+    end
+end
+eq(bonusOption().readOnly,true);eq(bonusOption().onSelect,nil)
+view.dailyBonus.completed=3;view.dailyBonus.canClaim=true
+call(commands.dailyquest)
+eq(bonusOption().readOnly,false)
+before=#requests
+call(bonusOption().onSelect)
+eq(requests[before+1].name,prefix..'claimBonus');eq(requests[before+1].args[1],123)
+eq(notices[#notices].title,'デイリー全クリア報酬')
+view.dailyBonus.status='claimed';view.dailyBonus.canClaim=false
+call(commands.dailyquest);eq(bonusOption().readOnly,true)
+view.dailyBonus.status='pending';call(commands.dailyquest)
+eq(bonusOption().title:find('確認待ち',1,true)~=nil,true)
+local weeklyBonus=false
+for _,option in ipairs(contexts[prefix..'weekly'].options) do
+    if option.title:find('全クリア',1,true) then weeklyBonus=true end
+end
+eq(weeklyBonus,false)
 io.write(('client: %d assertions passed\n'):format(count))

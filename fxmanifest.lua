@@ -4,7 +4,7 @@ game 'gta5'
 name 'suimag-dailyquest'
 author 'index_0427'
 description 'Server-authoritative daily and weekly quests for Qbox'
-version '1.2.0'
+version '1.3.0'
 
 shared_scripts { '@ox_lib/init.lua', 'config.lua' }
 server_scripts {
@@ -13,6 +13,7 @@ server_scripts {
     'server/selection.lua',
     'server/store.lua',
     'server/boards.lua',
+    'server/bonuses.lua',
     'server/tracking.lua',
     'server/main.lua',
     'server/adapters.lua',

@@ -69,6 +69,7 @@ function S.init()
     MySQL.query.await('SELECT exclude_crime, exclude_employment, updated_at FROM suimag_dailyquest_preferences LIMIT 0')
     MySQL.query.await('SELECT period_kind, period_start, ends_at, rerolls_used, token FROM suimag_dailyquest_boards LIMIT 0')
     MySQL.query.await('SELECT quest_id, slot, assigned_at, assigned_token, active FROM suimag_dailyquest_assignments LIMIT 0')
+    MySQL.query.await('SELECT id, citizenid, period_start, ends_at, required_count, reward_type, reward_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_bonuses LIMIT 0')
     -- Fail closed if any required table or column is missing, even with auto-create disabled.
     MySQL.query.await('SELECT id, citizenid, quest_id, period_kind, period_start, ends_at, target, progress, reward_type, reward_name, reward_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_progress LIMIT 0')
     MySQL.query.await('SELECT citizenid, day_start FROM suimag_dailyquest_visits LIMIT 0')
@@ -89,6 +90,7 @@ function S.open(citizenid, now, assignments)
             })
         end
     end
+    for _,entry in ipairs(S.rewardQueries(citizenid,now)) do queries[#queries+1]=entry end
     transact(queries)
 end
 function S.addTime(citizenid, from, to)

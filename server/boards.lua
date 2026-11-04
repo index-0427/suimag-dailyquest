@@ -23,7 +23,10 @@ S.sql.ensureAssigned = [[INSERT INTO suimag_dailyquest_progress
     (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_name, reward_amount)
     SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM suimag_dailyquest_boards
     WHERE citizenid = ? AND period_kind = ? AND period_start = ? AND token = ?
-    ON DUPLICATE KEY UPDATE id = id]]
+    ON DUPLICATE KEY UPDATE
+        reward_type = IF(status='active',VALUES(reward_type),reward_type),
+        reward_name = IF(status='active',VALUES(reward_name),reward_name),
+        reward_amount = IF(status='active',VALUES(reward_amount),reward_amount)]]
 S.sql.clearBoardToken = [[UPDATE suimag_dailyquest_boards SET token = ''
     WHERE citizenid = ? AND period_kind = ? AND period_start = ? AND token = ?]]
 S.sql.takeReroll = [[UPDATE suimag_dailyquest_boards b SET rerolls_used = 1, token = ?
@@ -57,8 +60,9 @@ end
 
 local function assignmentQueries(queries, cid, quest, period, slot, now, nonce)
     queries[#queries+1] = q('assign', {quest.id,slot,now,nonce,cid,quest.period,period.start,nonce})
+    local reward = DQ.reward(quest.period)
     queries[#queries+1] = q('ensureAssigned', {
-        cid,quest.id,quest.period,period.start,period.finish,quest.target,quest.reward.type,quest.reward.name or '',quest.reward.amount,
+        cid,quest.id,quest.period,period.start,period.finish,quest.target,reward.type,'',reward.amount,
         cid,quest.period,period.start,nonce,
     })
 end

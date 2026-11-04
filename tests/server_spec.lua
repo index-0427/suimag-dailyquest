@@ -32,7 +32,7 @@ local function open(cid, timestamp)
             records[k] = {
                 id=nextId, citizenid=cid, quest_id=q.id, period_kind=q.period,
                 period_start=period.start, ends_at=period.finish, target=q.target, progress=0,
-                reward_type=q.reward.type, reward_name=q.reward.name or '', reward_amount=q.reward.amount,
+                reward_type=DQ.reward(q.period).type, reward_name='', reward_amount=DQ.reward(q.period).amount,
                 status='active',
             }
         end
@@ -57,6 +57,7 @@ local function add(cid, metric, amount, timestamp)
     end
 end
 DQStore = {
+    bonusState = function() return nil end,
     init = function() if initFailures > 0 then initFailures=initFailures-1; error('init unavailable') end end,
     open = open,
     list = function(cid, timestamp)
@@ -167,7 +168,7 @@ print=function(message) logs[#logs+1]=message end
 Config.Activities.delivery={resources={['delivery-job']=true},maxAmount=1}
 Config.Quests[#Config.Quests+1]={
     id='delivery',period='daily',metric='activity',activity='delivery',target=3,
-    title='delivery',description='delivery',reward={type='item',name='water',amount=2},
+    title='delivery',description='delivery',
 }
 initFailures=1
 dofile('server/main.lua')
@@ -210,7 +211,7 @@ list()
 eq(row('ALPHA','weekly_visits').progress,1,'same day does not count twice')
 eq(claim(1,'daily_time').error,'incomplete')
 eq(claim(1,'daily_visit').ok,true)
-eq(#payments,1);eq(payments[1].cid,'ALPHA');eq(payments[1].amount,1000)
+eq(#payments,1);eq(payments[1].cid,'ALPHA');eq(payments[1].amount,150000)
 eq(claim(1,'daily_visit').error,'claimed');eq(#payments,1)
 advance(2)
 eq(callbacks['suimag-dailyquest:claim'](1,{},0).error,'invalid_request')
@@ -218,11 +219,11 @@ advance(2)
 eq(callbacks['suimag-dailyquest:claim'](1,'daily_time',0/0).error,'invalid_request')
 eq(claim(1,'daily_time',now-86400).error,'expired')
 -- Persisted reward and target do not change within an existing period.
-Config.Quests[1].reward.amount=999999
+Config.Rewards.daily=999999
 player(2,'BETA');list(2)
 eq(row('BETA','daily_visit').reward_amount,999999)
-eq(row('ALPHA','daily_visit').reward_amount,1000)
-Config.Quests[1].reward.amount=1000
+eq(row('ALPHA','daily_visit').reward_amount,150000)
+Config.Rewards.daily=150000
 -- Item-use events are local, scoped to Ox, allowlisted and rate limited.
 invoking='evil';handlers['ox_inventory:usedItem'](1,'water')
 eq(row('ALPHA','daily_meals').progress,0)
@@ -245,6 +246,10 @@ eq(exposed.RecordActivity(1,'delivery',1,'ride-1'),true)
 eq(row('ALPHA','delivery').progress,1)
 eq(exposed.RecordActivity(1,'delivery',1,'ride-2'),true)
 eq(exposed.RecordActivity(1,'delivery',1,'ride-3'),true)
+-- Preserve support for unresolved historical item rewards; new definitions use only common money.
+row('ALPHA','delivery').reward_type='item'
+row('ALPHA','delivery').reward_name='water'
+row('ALPHA','delivery').reward_amount=2
 hooks.full=true;eq(claim(1,'delivery').error,'inventory_full')
 eq(row('ALPHA','delivery').status,'active')
 hooks.full=nil;hooks.itemReject=true;eq(claim(1,'delivery').error,'reward_failed')
@@ -385,6 +390,100 @@ advance(2)
 eq(callbacks['suimag-dailyquest:reroll'](9,'unknown',0).error,'invalid_request')
 
 
+
+-- Daily all-clear bonus uses its own durable reservation and the same payout failure handling.
+local bonusRecords,bonusId={},100
+local function makeBonus(cid,completed)
+    bonusId=bonusId+1
+    local p=DQ.period('daily',now,Config.Reset)
+    local row={id=bonusId,citizenid=cid,period_start=p.start,ends_at=p.finish,
+        required_count=3,assigned_count=3,completed_count=completed,status='active',
+        reward_type='bank',reward_amount=200000}
+    bonusRecords[cid]=row
+    return row
+end
+local function bonusById(id)
+    for _,record in pairs(bonusRecords) do if record.id==id then return record end end
+end
+DQStore.bonusState=function(cid,start)
+    local record=bonusRecords[cid]
+    if record and record.period_start==start then return copy(record) end
+end
+DQStore.reserveBonus=function(cid,id,timestamp)
+    local record=bonusById(id)
+    if not record or record.citizenid~=cid or record.status~='active' or record.ends_at<=timestamp
+        or record.completed_count~=record.required_count or record.assigned_count~=record.required_count then return false end
+    record.status='pending';hook('reserveBonus',record);return true
+end
+DQStore.releaseBonus=function(id) bonusById(id).status='active' end
+DQStore.finishBonus=function(id) hook('finishBonus');bonusById(id).status='claimed' end
+local function claimBonus(id,start)
+    advance(2)
+    return callbacks['suimag-dailyquest:claimBonus'](id,start or DQ.period('daily',now,Config.Reset).start)
+end
+player(11,'BONUS');local b=makeBonus('BONUS',2)
+eq(list(11).dailyBonus.canClaim,false)
+before=#payments;eq(claimBonus(11).error,'incomplete');eq(#payments,before)
+b.completed_count=3;eq(list(11).dailyBonus.canClaim,true)
+eq(claimBonus(11).ok,true);eq(payments[#payments].amount,200000)
+eq(payments[#payments].reason,'dailyquest:bonus:'..b.id)
+before=#payments;eq(claimBonus(11).error,'claimed');eq(#payments,before)
+eq(claimBonus(11,0).error,'expired')
+advance(2);eq(callbacks['suimag-dailyquest:claimBonus'](11,0/0).error,'invalid_request')
+-- Per-quest and all-clear totals: 3 x 150,000 + 200,000; 2 x 500,000 weekly.
+player(12,'TOTALS');list(12);makeBonus('TOTALS',3)
+local firstPayment=#payments
+for _,quest in ipairs({'daily_visit','daily_time','daily_meals'}) do
+    row('TOTALS',quest).progress=row('TOTALS',quest).target
+    eq(claim(12,quest).ok,true)
+end
+eq(claimBonus(12).ok,true)
+local sum=0;for i=firstPayment+1,#payments do sum=sum+payments[i].amount end
+eq(sum,650000,'daily total')
+firstPayment=#payments
+for _,quest in ipairs({'weekly_visits','weekly_time'}) do
+    row('TOTALS',quest).progress=row('TOTALS',quest).target
+    eq(claim(12,quest).ok,true)
+end
+sum=0;for i=firstPayment+1,#payments do sum=sum+payments[i].amount end
+eq(sum,1000000,'weekly total')
+-- Same bonus under overlapping calls still pays once.
+player(13,'BONUS_RACE');makeBonus('BONUS_RACE',3);list(13)
+hooks.reserveBonus=function() coroutine.yield('bonus-db') end
+local r1,r2
+local a=coroutine.create(function() r1=claimBonus(13) end)
+eq(resume(a),'bonus-db')
+local z=coroutine.create(function() r2=claimBonus(13) end)
+eq(resume(z),25)
+before=#payments;hooks.reserveBonus=nil;resume(a);resume(z)
+eq(r1.ok,true);eq(r2.error,'claimed');eq(#payments,before+1)
+-- A failed payout is retryable; an unknown payout or failed finalization stays pending.
+player(14,'BONUS_FAILED');b=makeBonus('BONUS_FAILED',3)
+hooks.grant=function() return false end
+eq(claimBonus(14).error,'reward_failed');eq(b.status,'active')
+hooks.grant=nil;hooks.afterGrant=function() error('bonus outcome unknown') end
+before=#payments
+eq(claimBonus(14).error,'pending');eq(b.status,'pending');eq(#payments,before+1)
+hooks.afterGrant=nil;before=#payments
+eq(claimBonus(14).error,'pending');eq(#payments,before)
+player(15,'BONUS_DBFAIL');b=makeBonus('BONUS_DBFAIL',3)
+hooks.finishBonus=function() error('bonus SQL failure') end
+eq(claimBonus(15).error,'pending');eq(b.status,'pending')
+before=#payments;hooks.finishBonus=nil
+eq(claimBonus(15).error,'pending');eq(#payments,before)
+-- Identity is checked again after the bonus reservation yielded.
+player(16,'BONUS_OLD');b=makeBonus('BONUS_OLD',3)
+hooks.reserveBonus=function() player(16,'BONUS_NEW') end
+before=#payments;eq(claimBonus(16).error,'claim_unavailable')
+eq(#payments,before);eq(b.status,'active');hooks.reserveBonus=nil
+-- Reservation crossing the daily deadline is released without paying.
+player(17,'BONUS_EXPIRED');b=makeBonus('BONUS_EXPIRED',3)
+hooks.reserveBonus=function(record) timer=timer+(record.ends_at-now)*1000;now=record.ends_at end
+before=#payments;eq(claimBonus(17).error,'claim_unavailable');eq(#payments,before)
+eq(b.status,'active');hooks.reserveBonus=nil
+-- The next day has a separate bonus record and allowance.
+player(11,'BONUS');makeBonus('BONUS',3)
+eq(claimBonus(11).ok,true)
 -- A shortage still exposes preferences instead of locking the user out of setup.
 local oldState=DQStore.boardState
 DQStore.ensureBoards=function() return false,'no_candidates' end

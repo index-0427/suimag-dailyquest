@@ -20,9 +20,10 @@ io.write([[
 日次20候補から3件、週次20候補から2件をキャラクター別に固定抽選します。
 日次は短時間枠を最低1件含め、犯罪・職業必須の除外設定、実際の所属、連携元の稼働状態を反映します。
 [抽選・リロールのルール](selection.md) を参照してください。
-既存6件のID・条件・報酬は維持し、17系統を追加しています。
+クエストのID・条件を維持し、報酬は全候補共通です。デイリー1件15万・ウィークリー1件50万。
 日次はJST毎日05:00、週次はJST月曜05:00に更新します。
 
+デイリー全3件をクリアすると、追加20万を1日1回受け取れます（日次合計65万）。週次2件は合計100万です。
 下表は全候補の一覧です。実際に提示される3件・2件だけが進捗・報酬の対象です。
 勤務クエストは職業への所属・出勤が必要です。ジョブ・犯罪は各リソースの参加条件に従います。
 連携元が未起動の未達成クエストには「連携元が未起動」を表示し、達成済みの報酬は受け取れます。
@@ -33,7 +34,7 @@ for _,period in ipairs({'daily','weekly'}) do
     io.write('| ID | クエスト | 目標 | 銀行報酬 | 判定元 |\n| --- | --- | --- | ---: | --- |\n')
     for _,q in ipairs(Config.Quests) do
         if q.period==period then
-            io.write(('| %s | %s | %s | $%d | %s |\n'):format(q.id,q.title,target(q),q.reward.amount,collector(q)))
+            io.write(('| %s | %s | %s | $%d | %s |\n'):format(q.id,q.title,target(q),DQ.reward(q.period).amount,collector(q)))
         end
     end
     io.write('\n')
