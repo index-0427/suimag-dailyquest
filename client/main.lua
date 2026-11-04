@@ -74,13 +74,14 @@ local function render(data, selected)
                 local canClaim = done and quest.status == 'active'
                 if done then completed = completed + 1 end
                 if canClaim then claimable = claimable + 1 end
-                local state = quest.status == 'claimed' and '受取済み'
+                local state = quest.available == false and not done and '連携元が未起動' or quest.status == 'claimed' and '受取済み'
                     or quest.status == 'pending' and '確認待ち' or canClaim and '報酬を受け取る' or '進行中'
-                local current = math.floor(quest.value / quest.scale)
+                local factor = 10 ^ (quest.precision or 0)
+                local current = math.floor(quest.value / quest.scale * factor) / factor
                 local target = quest.target / quest.scale
                 options[#options + 1] = {
                     title = quest.title .. ' · ' .. state,
-                    description = quest.description .. ('\n%d / %g %s  •  %s'):format(current, target, quest.unit, quest.reward),
+                    description = quest.description .. ('\n%g / %g %s  •  %s'):format(current, target, quest.unit, quest.reward),
                     icon = quest.status == 'claimed' and 'circle-check'
                         or quest.status == 'pending' and 'hourglass-half' or canClaim and 'gift' or 'bullseye',
                     progress = math.min(100, quest.value / quest.target * 100),

@@ -3,40 +3,37 @@
 FiveM / Qbox 用のデイリー・ウィークリークエスト。Luaのみ、ビルド不要です。
 `/dailyquest` で ox_lib のメニューを開き、進捗を確認して達成報酬を受け取ります。
 
-- キャラクター（citizenid）ごとに日次3件・週次3件。来訪・滞在時間・飲食を自動集計
+- キャラクター（citizenid）ごとに日次20件・週次20件。来訪・滞在・飲食・移動・勤務・13種類の活動を自動集計
 - 日次は毎日 **JST 05:00**、週次は **月曜 JST 05:00** に更新。サーバーOSのタイムゾーンに依存しない
 - 金銭（銀行／現金）または ox_inventory のアイテム報酬
 - 進捗と受取状態を専用SQLテーブルに保存。再接続・リソース再起動後も継続
 - 同時受取をSQLの条件付き更新で排他。結果不明の配布は保留し、自動で再配布しない
-- 他ジョブ向けのサーバーexportと完了IDによる重複排除
+- 既存ジョブの自動連携、永続クールダウン、新規連携向けexportと完了IDによる重複排除
 - 既存の `noob_battlepass` / `sky_battlepass` / `skybp_events` が起動中なら進行・受取を休止
 - 初期状態ではキー割当なし。LB Phone・既存ジョブ・既存DBテーブルへの変更不要
 
-## 初期クエスト
+## クエスト
 
-| 期間 | 条件 | 銀行報酬 |
-| --- | --- | ---: |
-| 日次 | 街への参加 | $1,000 |
-| 日次 | 合計30分の接続 | $3,000 |
-| 日次 | water / burger を合計3回使用 | $2,000 |
-| 週次 | 異なる3日間に参加 | $5,000 |
-| 週次 | 合計3時間の接続 | $10,000 |
-| 週次 | water / burger を合計15回使用 | $5,000 |
+**日次20種類・週次20種類**を固定で表示します。[全40件の目標・報酬・判定元](docs/catalog.md)を用意しています。
+来訪・滞在・飲食に加え、徒歩、自転車、自動車、勤務、バス、ごみ回収、電気工事、郵便、タクシー、現金輸送、
+釣り、狩猟、建築、高圧洗浄、リサイクル、家強盗、ブースティングを収録しています。
 
-金額はテスト導入用の初期値です。経済への影響を確認して `config.lua` で調整してください。
-接続時間には離席を含みます。キャラクター選択画面・オフライン時間は含まず、導入前の実績は遡及しません。
+全件の銀行報酬合計は日次$48,000・週次$188,000です。既存6件のID・条件・報酬は維持しています。
+職業への所属や仕事・犯罪の参加条件が必要なクエストもあり、全件達成は必須ではありません。
+金額はテスト導入用の初期値です。経済への影響を確認して config.lua で調整してください。
+接続時間には離席を含み、キャラクター選択画面・オフライン時間は含みません。導入前の実績は遡及しません。
 接続したまま午前5時をまたいだ場合も新しい日の参加として数えます。
 期限までに手動で受け取らなかった報酬は失効します。
 
 ## 導入
 
-必要なリソース: `oxmysql` / `ox_lib` / `qbx_core` / `ox_inventory`。
+OneSync有効環境で使用します。必要なリソース: `oxmysql` / `ox_lib` / `qbx_core` / `ox_inventory`。
 対応バージョンと連携方針は [互換性と移行](docs/compatibility.md) を参照してください。
 
 1. リポジトリを **suimag-dailyquest** というフォルダ名で配置します。単一インスタンスのみ対応します。
 2. 旧バトルパスとその連携リソースの起動指定を整理します。`ensure [standalone]` などのカテゴリ起動にも注意してください。
 3. 依存リソース・カテゴリ起動の後に下記を設定します。同じ依存の ensure を追加する必要はありません。
-4. 起動時に `sql/schema.sql` の専用3テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
+4. 起動時に `sql/schema.sql` の専用4テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
 5. コンソールで `dailyquest_status`、ゲーム内で `/dailyquest` を確認します。
 
 ```cfg
@@ -53,13 +50,15 @@ ensure suimag-dailyquest
 このリポジトリの実装・ローカル検証では **接続先への配置、DB操作、stop/ensure/restartは実行していません**。
 実機導入手順と確認項目は [運用・受入確認](docs/operations.md) にあります。
 
+初期版から更新する場合も、追加した signal_gates テーブルが必要です。自動作成が無効なら sql/schema.sql を再適用してください。
+
 ## 設定
 
 `config.lua` の `Config.Quests` が表示順です。
 
 - `id`: 保存キー。公開後は変更しない。条件を別物にする場合は新しいIDを追加
 - `period`: `daily` / `weekly`
-- `metric`: `attendance`（参加日数）/ `playtime`（秒）/ `consume`（使用回数）/ `activity`（外部連携）
+- `metric`: `attendance`（参加日数）/ `playtime`（秒）/ `consume`（使用回数）/ `distance`（移動距離m）/ `duty`（勤務秒）/ `activity`（外部連携）
 - `target`: 正の整数。参加日数は日次1、週次最大7
 - `reward`: `{ type = 'bank', amount = 1000 }`、`{ type = 'cash', amount = 1000 }`、
   または `{ type = 'item', name = 'water', amount = 2 }`
@@ -74,7 +73,7 @@ ensure suimag-dailyquest
 
 ## ジョブ連携
 
-任意のサーバーリソースの成功処理から呼びます。初期状態では外部リソースからの加算はすべて拒否します。
+任意のサーバーリソースの成功処理から呼びます。初期設定では13の連携元を許可しています。自動連携の契約は [連携仕様](docs/integrations.md) を参照してください。新しい連携元は明示的に追加します。
 
 ```lua
 -- config.lua
@@ -107,7 +106,7 @@ local ok, reason = exports['suimag-dailyquest']:RecordActivity(
 
 **クライアントから任意の進捗・加算数・報酬額を送るイベントはありません。**
 外部連携側でも、クライアントの完了申告をそのままexportに流さず、所持品・位置・ジョブ状態・完了IDなどをサーバーで検証してください。
-旧 `skybp:*` イベントは成功前の通知を含むため、そのまま流用していません。
+旧 `skybp:*` のうち、成功前の狩猟通知は使用しません。リサイクル・ブースティングは確認済みの完了通知を発火元チェック付きで購読します。
 
 ほかのクライアントUIからメニューを開く場合:
 
@@ -117,8 +116,8 @@ exports['suimag-dailyquest']:OpenQuests()
 
 ## 保存と障害時の扱い
 
-専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_events` です。
-既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの3テーブルもバックアップしてください。
+専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_events`、`suimag_dailyquest_signal_gates` です。
+既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの4テーブルもバックアップしてください。
 
 接続時間は約15秒ごとに保存します。切断・正常停止・強制終了で最後の未保存区間を失う場合があります。
 DB障害で結果不明の時間加算は再送しません。長いサーバーストールや時計の大幅な変化中の時間も加算しません。
@@ -143,6 +142,9 @@ TZ=UTC lua tests/domain_spec.lua
 TZ=America/New_York lua tests/domain_spec.lua
 lua tests/server_spec.lua
 lua tests/client_spec.lua
+lua tests/catalog_spec.lua
+lua tests/tracking_spec.lua
+lua tests/adapters_spec.lua
 python3 tests/sql_spec.py
 ```
 

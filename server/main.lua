@@ -66,6 +66,21 @@ local function run(source, fn)
     return result or { ok = true }
 end
 
+
+-- Resource-local API for trusted adapters; not a FiveM export or network event.
+DQRuntime = {}
+function DQRuntime.identity(sourceId)
+    if not DQ.integer(sourceId, 1) or blocked[sourceId] then return nil end
+    local player = exports.qbx_core:GetPlayer(sourceId)
+    local data = player and not player.Offline and player.PlayerData
+    if data and data.source == sourceId and DQ.identifier(data.citizenid) then return data.citizenid end
+end
+function DQRuntime.signal(sourceId, expectedCitizenId, activity)
+    return run(sourceId, function(session, now)
+        if session.citizenid ~= expectedCitizenId then return { ok=false, error='player_unavailable' } end
+        DQStore.signal(session.citizenid, activity, now)
+    end)
+end
 local function rateLimit(source, action)
     local now = GetGameTimer()
     requests[source] = requests[source] or {}
@@ -99,8 +114,13 @@ local function snapshot(source)
                     id = quest.id, period = quest.period, periodStart = period.start,
                     title = quest.title, description = quest.description,
                     value = row.progress, target = row.target, status = row.status,
-                    unit = quest.metric == 'playtime' and '分' or (quest.unit or '回'),
-                    scale = quest.metric == 'playtime' and 60 or 1,
+                    unit = (quest.metric == 'playtime' or quest.metric == 'duty') and '分'
+                        or quest.metric == 'distance' and 'km' or (quest.unit or '回'),
+                    scale = (quest.metric == 'playtime' or quest.metric == 'duty') and 60
+                        or quest.metric == 'distance' and 1000 or 1,
+                    precision = quest.metric == 'distance' and 1 or 0,
+                    available = not (quest.metric == 'activity' and Config.Activities[quest.activity].resource)
+                        or GetResourceState(Config.Activities[quest.activity].resource) == 'started',
                     reward = rewardLabel,
                 }
             end
@@ -274,9 +294,31 @@ CreateThread(function()
                     local seconds = DQ.elapsed(session, now, timer, Config.TickSeconds * 2)
                     -- Advance before awaiting DB. An ambiguous write must never be replayed.
                     session.wall, session.timer = now, timer
+                    local tracked = DQTracking.drain(session)
                     if seconds and seconds > 0 then DQStore.addTime(session.citizenid, now - seconds, now) end
+                    if #tracked > 0 then DQStore.tracked(session.citizenid, tracked) end
                 end)
             end
+        end
+    end
+end)
+
+CreateThread(function()
+    while true do
+        Wait(Config.Tracking.sampleSeconds * 1000)
+        if ready and not conflict() then
+            for sourceId, session in pairs(sessions) do
+                if current(sourceId, session) then
+                    local player = exports.qbx_core:GetPlayer(sourceId)
+                    if player and player.PlayerData.citizenid == session.citizenid then
+                        local ok, frame = pcall(DQTracking.frame, sourceId, player.PlayerData)
+                        if ok then DQTracking.sample(session, frame)
+                        else session.tracking = nil; log('Tracking sample failed: ' .. tostring(frame)) end
+                    else session.tracking = nil end
+                end
+            end
+        else
+            for _, session in pairs(sessions) do session.tracking = nil end
         end
     end
 end)

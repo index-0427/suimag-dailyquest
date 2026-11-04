@@ -100,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(schema)
         execute(schema)  # migration can run repeatedly
         execute(plan("open"))
-        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_progress;"), "8", "all quests created")
+        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_progress;"), "42", "all quests created")
         eq(value("daily_visit"), "1", "daily attendance")
         week_start = 1793563200
         eq(value("weekly_visits", start=week_start), "1", "weekly attendance")
@@ -163,6 +163,46 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         eq(value("daily_delivery", start=1794340800), "1", "new receipt accepted")
         eq(value("weekly_visits", start=1794168000), "1", "weekly attendance resets")
         eq(len(execute(SQL["pending"]).stdout.splitlines()), 0, "no pending rows left")
+        # Every shipped legacy activity writes its daily and weekly quest together.
+        execute(plan("gate_open"))
+        activities = ["bus", "garbage", "electrician", "postal", "taxi", "gruppe",
+                      "fishing", "hunting", "construction", "cleaning", "recycle", "house", "boosting"]
+
+        def gate_value(activity, period="weekly", start=week_start):
+            return scalar("SELECT progress FROM suimag_dailyquest_progress "
+                          f"WHERE citizenid='GATES' AND quest_id='{period}_{activity}' AND period_start={start};")
+
+        for activity in activities:
+            execute(plan("signal_" + activity))
+            eq(gate_value(activity), "1", activity + " weekly completion")
+            eq(gate_value(activity, "daily", 1793736000), "1", activity + " daily completion")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            list(pool.map(lambda _: execute(plan("signal_bus")), range(8)))
+        eq(gate_value("bus"), "1", "same committed SQL token is not replayable")
+        execute(plan("signal_duplicate"))
+        execute(plan("signal_restarted"))
+        eq(gate_value("bus"), "1", "rolling gate survives a new resource boot")
+        execute(plan("signal_later"))
+        eq(gate_value("bus"), "2", "new completion after cooldown")
+        queries = PLANS["signal_rollback"]
+        broken = "START TRANSACTION;" + ";".join(bind(q["query"], q["values"]) for q in queries[:3]) + ";INSERT INTO absent VALUES (1);COMMIT;"
+        eq(execute(broken, check=False).returncode != 0, True, "signal failure injection")
+        eq(gate_value("garbage"), "1", "signal rollback leaves progress unchanged")
+        execute(plan("signal_rollback"))
+        eq(gate_value("garbage"), "2", "rolled back signal can retry")
+        execute(plan("signal_before_reset"))
+        execute(plan("gate_next_day"))
+        execute(plan("signal_after_reset"))
+        eq(gate_value("bus", "daily", 1793822400), "0", "reset does not bypass rolling cooldown")
+        execute(plan("signal_after_cooldown"))
+        eq(gate_value("bus", "daily", 1793822400), "1", "first eligible new day completion")
+        execute(plan("tracked"))
+        eq(value("daily_walk"), "10", "tracked movement before reset")
+        eq(value("daily_walk", start=1793822400), "15", "tracked movement after reset")
+        eq(value("weekly_walk", start=week_start), "25", "tracked weekly movement")
+        eq(value("daily_duty"), "2", "duty before reset")
+        eq(value("daily_duty", start=1793822400), "3", "duty after reset")
+        eq(value("weekly_duty", start=week_start), "5", "weekly duty conserved")
         print(f"sql: {checks} assertions passed (isolated MariaDB, no network)")
     finally:
         daemon.terminate()

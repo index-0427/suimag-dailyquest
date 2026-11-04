@@ -27,7 +27,14 @@ S.sql = {
         AND EXISTS (SELECT 1 FROM suimag_dailyquest_events
             WHERE citizenid = ? AND activity = ? AND receipt = ? AND processed = 0)]],
     processed = [[UPDATE suimag_dailyquest_events SET processed = 1 WHERE citizenid = ? AND activity = ? AND receipt = ?]],
-    pending = [[SELECT id, citizenid, quest_id, period_start, attempted_at, reward_type, reward_name, reward_amount
+    gate = [[INSERT INTO suimag_dailyquest_signal_gates (citizenid, activity) VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE citizenid = citizenid]],
+    throttle = [[UPDATE suimag_dailyquest_signal_gates SET last_at = ?, token = ?
+        WHERE citizenid = ? AND activity = ? AND last_at <= ?]],
+    gateDone = [[UPDATE suimag_dailyquest_signal_gates SET token = '' WHERE citizenid = ? AND activity = ? AND token = ?]],
+    signal = [[UPDATE suimag_dailyquest_progress SET progress = LEAST(target, progress + 1)
+        WHERE citizenid = ? AND quest_id = ? AND period_start = ? AND status = 'active'
+        AND EXISTS (SELECT 1 FROM suimag_dailyquest_signal_gates WHERE citizenid = ? AND activity = ? AND token = ?)]],    pending = [[SELECT id, citizenid, quest_id, period_start, attempted_at, reward_type, reward_name, reward_amount
         FROM suimag_dailyquest_progress WHERE status = 'pending' ORDER BY attempted_at LIMIT 50]],
 }
 
@@ -44,6 +51,8 @@ function S.init()
         local schema = assert(LoadResourceFile(GetCurrentResourceName(), 'sql/schema.sql'), 'Missing schema')
         for statement in schema:gmatch('([^;]+);') do MySQL.query.await(statement) end
     end
+    S.bootId = assert(MySQL.scalar.await('SELECT UUID()'), 'Could not create signal boot ID')
+    MySQL.query.await('SELECT citizenid, activity, last_at, token FROM suimag_dailyquest_signal_gates LIMIT 0')
     -- Fail closed if any required table or column is missing, even with auto-create disabled.
     MySQL.query.await('SELECT id, citizenid, quest_id, period_kind, period_start, ends_at, target, progress, reward_type, reward_name, reward_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_progress LIMIT 0')
     MySQL.query.await('SELECT citizenid, day_start FROM suimag_dailyquest_visits LIMIT 0')
@@ -127,4 +136,40 @@ end
 
 function S.pending()
     return MySQL.query.await(S.sql.pending)
+end
+
+-- Legacy notifications carry no immutable completion ID. Persist a rolling cooldown,
+-- and acquire an exclusive gate lock before touching any progress rows.
+local signalSequence = 0
+function S.signal(citizenid, activity, now)
+    signalSequence = signalSequence + 1
+    local token = assert(S.bootId, 'Missing signal boot ID') .. '-' .. signalSequence
+    local rule = Config.Activities[activity]
+    local queries = {
+        query('gate', { citizenid, activity }),
+        query('throttle', { now, token, citizenid, activity, now - rule.cooldown }),
+    }
+    for _, quest in ipairs(Config.Quests) do
+        if quest.metric == 'activity' and quest.activity == activity then
+            queries[#queries + 1] = query('signal', {
+                citizenid, quest.id, DQ.period(quest.period, now, Config.Reset).start,
+                citizenid, activity, token,
+            })
+        end
+    end
+    queries[#queries + 1] = query('gateDone', { citizenid, activity, token })
+    transact(queries)
+end
+
+function S.tracked(citizenid, increments)
+    local queries = {}
+    for _, entry in ipairs(increments) do
+        local quest, period = entry.quest, entry.period
+        queries[#queries + 1] = query('ensure', {
+            citizenid, quest.id, quest.period, period.start, period.finish, quest.target,
+            quest.reward.type, quest.reward.name or '', quest.reward.amount,
+        })
+        queries[#queries + 1] = query('advance', { entry.amount, citizenid, quest.id, period.start })
+    end
+    transact(queries)
 end

@@ -47,12 +47,83 @@ Config.Quests = {
     },
 }
 
--- サーバーexport RecordActivity を呼べるリソースと一回の上限。
--- 連携元に成功確認と一意の完了IDが必要。初期状態では外部連携なし。
-Config.Activities = {
-    -- delivery = { resources = { ['my-delivery'] = true }, maxAmount = 1 },
+
+-- OneSync上の位置とQboxの勤務状態をサーバーで観測。
+Config.Tracking = {
+    sampleSeconds = 5,
+    maxSpeed = { walk = 9, cycle = 25, drive = 120 }, -- m/s、超過区間は破棄
+    bicycles = { 'bmx', 'cruiser', 'fixter', 'scorcher', 'tribike', 'tribike2', 'tribike3' },
+    excludedJobs = { unemployed = true },
 }
--- 外部連携クエストの例（Config.Questsに追加）:
--- { id='daily_delivery', period='daily', metric='activity', activity='delivery', target=3,
---   title='配達のお仕事', description='配達を3回完了する。', unit='回',
---   reward={ type='item', name='water', amount=2 } },
+
+-- 既存リソースを変更せず、確認済みのサーバー内通知を受信する。
+-- payment=true は直前のQbox入金と照合。給与・送金・クエスト報酬だけでは進まない。
+-- 永続クールダウンは日付更新・リソース再起動でも維持される。
+Config.Activities = {
+    bus = { resource='gg_busjob', signal='job', payment=true, cooldown=30 },
+    garbage = { resource='gg_garbagejob', signal='job', payment=true, cooldown=30 },
+    electrician = { resource='gg_electricianjob', signal='job', payment=true, cooldown=30 },
+    postal = { resource='gg_gopostal', signal='job', payment=true, cooldown=30 },
+    taxi = { resource='gg_taxijob', signal='job', payment=true, reasons={ ['Finshed Taxi Route']=true }, cooldown=30 },
+    gruppe = { resource='gg_gruppejob', signal='job', payment=true, cooldown=30 },
+    fishing = { resource='pug-fishing', signal='job', payment=true, reasons={ ['sell-fish']=true, ['sell-crabs']=true }, cooldown=30 },
+    hunting = { resource='wais-hunting', signal='job', payment=true, cooldown=30 },
+    construction = { resource='tw-builderjob', signal='job', cooldown=60 },
+    cleaning = { resource='kq_powerwashing', signal='job', cooldown=60 },
+    recycle = { resource='jim-recycle', signal='recycle', cooldown=5 },
+    house = { resource='satou_houserobbery', signal='house', cooldown=60 },
+    boosting = { resource='gg_boosting', signal='boosting', cooldown=60 },
+}
+for _, rule in pairs(Config.Activities) do
+    rule.resources = { [rule.resource] = true }
+    rule.maxAmount = 1
+end
+
+-- 日次20種類・週次20種類。既存6件のIDと条件は維持。
+local function pair(id, metric, daily, weekly, titles, description, rewards, extra)
+    for i, period in ipairs({ 'daily', 'weekly' }) do
+        local quest = {
+            id=period .. '_' .. id, period=period, metric=metric,
+            target=i == 1 and daily or weekly, title=titles[i],
+            description=description, reward={ type='bank', amount=rewards[i] },
+        }
+        for key, value in pairs(extra or {}) do quest[key] = value end
+        Config.Quests[#Config.Quests + 1] = quest
+    end
+end
+
+pair('walk', 'distance', 1000, 7000, { '街角ウォーキング', '一週間の街歩き' },
+    '車に乗らず街を移動する。通常の歩行・走行をサーバーで計測する。', {1500,6000}, { mode='walk', unit='m' })
+pair('cycle', 'distance', 3000, 20000, { 'ペダルをこいで', 'サイクリング週間' },
+    '自転車を運転して移動する。同乗・車両の乗換区間は対象外。', {2000,8000}, { mode='cycle', unit='m' })
+pair('drive', 'distance', 8000, 60000, { '今日のドライブ', '街をつなぐドライバー' },
+    '自動車を運転して移動する。同乗・バイク・航空機は対象外。', {2000,8000}, { mode='drive', unit='m' })
+pair('duty', 'duty', 30*60, 3*60*60, { '今日の勤務', '一週間のお仕事' },
+    'Qboxの職業で出勤して過ごす。無職・退勤中・死亡中は対象外。', {2500,10000})
+
+pair('bus', 'activity', 1, 5, { '街の足を支える', 'バス運行の一週間' },
+    'バス業務の精算通知と入金を確認する。精算1回で進捗+1。', {2500,10000}, { activity='bus', unit='回' })
+pair('garbage', 'activity', 1, 5, { '街をきれいに', 'ごみ回収のエキスパート' },
+    'ごみ回収業務の精算通知と入金を確認する。精算1回で進捗+1。', {2500,10000}, { activity='garbage', unit='回' })
+pair('electrician', 'activity', 2, 10, { '街に明かりを', '電気設備を守る' },
+    '電気工事業務の精算通知と入金を確認する。精算1回で進捗+1。', {2500,10000}, { activity='electrician', unit='回' })
+pair('postal', 'activity', 2, 10, { '今日のお届けもの', '配達の頼れる人' },
+    '郵便配達の精算通知と入金を確認する。精算1回で進捗+1。', {2500,10000}, { activity='postal', unit='回' })
+pair('taxi', 'activity', 2, 12, { 'お客様を目的地へ', '今週のタクシードライバー' },
+    'NPCタクシーのルートを終え、運賃の入金を受ける。', {2500,10000}, { activity='taxi', unit='回' })
+pair('gruppe', 'activity', 1, 5, { '大切な荷物を守る', '現金輸送のプロ' },
+    '現金輸送業務の精算通知と入金を確認する。精算1回で進捗+1。', {3000,12000}, { activity='gruppe', unit='回' })
+pair('fishing', 'activity', 1, 5, { '今日の水揚げ', '一週間の漁獲便り' },
+    '釣りで手に入れた魚またはカニを売却して入金を受ける。宝石売却は対象外。', {2000,8000}, { activity='fishing', unit='回' })
+pair('hunting', 'activity', 1, 5, { '狩りの成果', 'ハンターの一週間' },
+    '狩猟の売却・ミッションで精算通知と入金を受ける。獲得アイテム数では数えない。', {2500,10000}, { activity='hunting', unit='回' })
+pair('construction', 'activity', 1, 4, { '街づくりに参加', '今週の建築クルー' },
+    '建築の仕事を完了し、支払い対象のクルーとして完了通知を受ける。', {3000,12000}, { activity='construction', unit='回' })
+pair('cleaning', 'activity', 1, 4, { '高圧洗浄の日', '街を磨く一週間' },
+    '高圧洗浄の契約を完了し、サーバーの完了通知を受ける。', {2500,10000}, { activity='cleaning', unit='回' })
+pair('recycle', 'activity', 5, 30, { '資源を次の誰かへ', '循環する街' },
+    'リサイクルの箱を回収・納品する。素材の個数ではなく箱の納品回数で数える。', {2000,8000}, { activity='recycle', unit='箱' })
+pair('house', 'activity', 1, 3, { 'ひと仕事して脱出', '家強盗の一週間' },
+    '戦利品を得てホストが脱出する家強盗を完了する。完了時の参加者が対象。', {3000,12000}, { activity='house', unit='回' })
+pair('boosting', 'activity', 1, 3, { 'ターゲット車両を届ける', '今週のブースティング' },
+    'ブースティングを完了する。成功フックで通知されたグループ参加者が対象。', {3500,14000}, { activity='boosting', unit='回' })

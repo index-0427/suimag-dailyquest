@@ -1,5 +1,6 @@
 dofile('config.lua')
 dofile('server/domain.lua')
+dofile('server/tracking.lua')
 local count, callbacks, handlers, commands, exposed, threads = 0, {}, {}, {}, {}, {}
 local now, timer, invoking = 1793736100, 1000, nil
 local players, records, visits, receipts, resourceStates = {}, {}, {}, {}, {}
@@ -177,7 +178,7 @@ local function claim(id,quest,start)
 end
 player(1,'ALPHA')
 local view=list()
-eq(view.ok,true);eq(#view.quests,7)
+eq(view.ok,true);eq(#view.quests,41)
 eq(row('ALPHA','daily_visit').progress,1)
 eq(row('ALPHA','weekly_visits').progress,1)
 eq(callbacks['suimag-dailyquest:list'](1).error,'rate_limited')
@@ -302,4 +303,32 @@ commands.dailyquest_pending(0);eq(#logs,logCount+1)
 _G.source=7;handlers.playerDropped()
 players[7]=nil
 eq(list(7).error,'player_unavailable')
+
+-- Runtime bridge binds identity and routes only the intended activity into storage.
+player(8,'BRIDGE');list(8)
+local signals={}
+DQStore.signal=function(cid,activity,timestamp) signals[#signals+1]={cid=cid,activity=activity,at=timestamp} end
+eq(DQRuntime.signal(8,'OLD','bus').error,'player_unavailable')
+eq(#signals,0)
+eq(DQRuntime.signal(8,'BRIDGE','bus').ok,true)
+eq(signals[1].cid,'BRIDGE');eq(signals[1].activity,'bus')
+-- The actual sampler thread hands movement/duty to the normal DB flush exactly once.
+players={ [8]=players[8] }
+local captured={}
+DQStore.tracked=function(cid,entries) captured[#captured+1]={cid=cid,entries=entries} end
+local position=0
+DQTracking.frame=function()
+    return {ped=8,vehicle=0,bucket=0,x=position,y=0,z=30,mode='walk',alive=true,duty=true,job='police',wall=now,timer=timer}
+end
+eq(resume(threads[3]),5000)
+resume(threads[3])
+advance(5);position=10;resume(threads[3])
+resume(threads[2])
+eq(#captured,1)
+eq(captured[1].cid,'BRIDGE')
+local sampled={}
+for _,entry in ipairs(captured[1].entries) do sampled[entry.quest.id]=entry.amount end
+eq(sampled.daily_walk,10);eq(sampled.weekly_walk,10)
+eq(sampled.daily_duty,5);eq(sampled.weekly_duty,5)
+advance(15);resume(threads[2]);eq(#captured,1,'flushed tracking cannot repeat')
 io.write(('server: %d assertions passed\n'):format(count))

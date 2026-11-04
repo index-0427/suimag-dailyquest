@@ -23,9 +23,32 @@ function DQ.validate(config)
     for name, value in pairs(config.Consumables) do
         assert(DQ.identifier(name) and value == true, 'Invalid consumable')
     end
+    assert(type(config.Tracking) == 'table' and DQ.integer(config.Tracking.sampleSeconds, 1, 10), 'Invalid tracking interval')
+    for _, mode in ipairs({ 'walk', 'cycle', 'drive' }) do
+        assert(DQ.integer(config.Tracking.maxSpeed[mode], 1, 150), 'Invalid movement speed cap')
+    end
+    assert(type(config.Tracking.bicycles) == 'table' and #config.Tracking.bicycles > 0, 'Missing bicycle models')
+    for _, model in ipairs(config.Tracking.bicycles) do assert(DQ.identifier(model), 'Invalid bicycle model') end
+    for job, excluded in pairs(config.Tracking.excludedJobs) do
+        assert(DQ.identifier(job) and excluded == true, 'Invalid excluded job')
+    end
+    local signalSources = {}
     for name, activity in pairs(config.Activities) do
         assert(DQ.identifier(name) and DQ.integer(activity.maxAmount, 1, 10000), 'Invalid activity')
         assert(type(activity.resources) == 'table', 'Missing activity allowlist')
+        if activity.signal then
+            assert(activity.signal == 'job' or activity.signal == 'recycle' or activity.signal == 'house'
+                or activity.signal == 'boosting', 'Invalid activity signal')
+            assert(DQ.identifier(activity.resource) and activity.resources[activity.resource], 'Missing signal resource')
+            assert(DQ.integer(activity.cooldown, 1, 3600), 'Invalid signal cooldown')
+            local signalKey = activity.signal .. ':' .. activity.resource
+            assert(not signalSources[signalKey], 'Ambiguous signal resource')
+            signalSources[signalKey] = true
+            assert(activity.payment == nil or type(activity.payment) == 'boolean', 'Invalid payment condition')
+            for reason, allowed in pairs(activity.reasons or {}) do
+                assert(type(reason) == 'string' and #reason <= 128 and allowed == true, 'Invalid payment reason')
+            end
+        end
         for resource, allowed in pairs(activity.resources) do
             assert(DQ.identifier(resource) and allowed == true, 'Invalid resource allowlist')
         end
@@ -36,12 +59,15 @@ function DQ.validate(config)
         assert(DQ.identifier(quest.id) and not definitions[quest.id], 'Invalid or duplicate quest id')
         assert(quest.period == 'daily' or quest.period == 'weekly', 'Invalid period')
         assert(quest.metric == 'attendance' or quest.metric == 'playtime'
-            or quest.metric == 'consume' or quest.metric == 'activity', 'Invalid metric')
+            or quest.metric == 'consume' or quest.metric == 'activity' or quest.metric == 'distance'
+            or quest.metric == 'duty', 'Invalid metric')
         assert(DQ.integer(quest.target, 1, 10000000), 'Invalid target')
         assert(type(quest.title) == 'string' and #quest.title > 0 and #quest.title <= 160, 'Invalid title')
         assert(type(quest.description) == 'string' and #quest.description <= 1000, 'Invalid description')
         assert(quest.unit == nil or type(quest.unit) == 'string', 'Invalid unit')
-        if quest.metric == 'attendance' then
+        if quest.metric == 'distance' then
+            assert(quest.mode == 'walk' or quest.mode == 'cycle' or quest.mode == 'drive', 'Invalid movement mode')
+        elseif quest.metric == 'attendance' then
             assert(quest.target <= (quest.period == 'daily' and 1 or 7), 'Impossible attendance target')
         elseif quest.metric == 'activity' then
             assert(config.Activities[quest.activity], 'Missing activity definition')

@@ -93,4 +93,17 @@ call(exposed.OpenQuests)
 eq(menu,prefix..'root')
 handlers.onResourceStop('other-resource');eq(menu,prefix..'root')
 handlers.onResourceStop('suimag-dailyquest');eq(menu,nil)
+
+view.quests[#view.quests+1]={id='walk',period='daily',periodStart=123,title='Walk',description='Walk',
+    value=567,target=1000,status='active',unit='km',scale=1000,precision=1,reward='銀行 $1500'}
+local unavailable={id='bus',period='daily',periodStart=123,title='Bus',description='Work',
+    value=0,target=1,status='active',unit='回',scale=1,reward='銀行 $2500',available=false}
+view.quests[#view.quests+1]=unavailable
+mode='ok';call(commands.dailyquest)
+daily=contexts[prefix..'daily'].options
+eq(daily[4].description:find('0.5 / 1 km',1,true)~=nil,true,'fractional kilometre display')
+eq(daily[5].title:find('連携元が未起動',1,true)~=nil,true)
+eq(daily[5].readOnly,true)
+unavailable.value=1;call(commands.dailyquest)
+eq(contexts[prefix..'daily'].options[5].readOnly,false,'earned reward stays claimable when provider stops')
 io.write(('client: %d assertions passed\n'):format(count))

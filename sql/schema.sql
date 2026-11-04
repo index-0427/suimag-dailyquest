@@ -33,3 +33,11 @@ CREATE TABLE IF NOT EXISTS suimag_dailyquest_events (
     created_at BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (citizenid, activity, receipt)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS suimag_dailyquest_signal_gates (
+    citizenid VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    activity VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    last_at BIGINT UNSIGNED NOT NULL DEFAULT 0,
+    token VARCHAR(96) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+    PRIMARY KEY (citizenid, activity)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
