@@ -57,6 +57,7 @@ local function add(cid, metric, amount, timestamp)
     end
 end
 DQStore = {
+    expiredDaily = function() return {} end,
     bonusState = function() return nil end,
     init = function() if initFailures > 0 then initFailures=initFailures-1; error('init unavailable') end end,
     open = open,
@@ -171,6 +172,8 @@ Config.Quests[#Config.Quests+1]={
     title='delivery',description='delivery',
 }
 initFailures=1
+dofile('server/autoclaim.lua')
+TriggerClientEvent=function(...) notifications[#notifications+1]={...} end
 dofile('server/main.lua')
 local function resume(co)
     local ok,result=coroutine.resume(co);assert(ok,result);return result
@@ -318,7 +321,7 @@ resume(threads[2]) -- discard jump, establish baseline
 local oldStart=DQ.period('daily',now,Config.Reset).start
 advance(15);resume(threads[2])
 eq(records[key('CLOCK','daily_time',oldStart)].progress,22)
-eq(row('CLOCK','daily_time').progress,8)
+eq(row('CLOCK','daily_time').progress,0,'new daily tasks do not receive pre-draw time')
 eq(row('CLOCK','weekly_time').progress,30)
 -- Conflicts suspend progress and claims; stopping them resumes without restart.
 resourceStates.sky_battlepass='started'
@@ -484,6 +487,91 @@ eq(b.status,'active');hooks.reserveBonus=nil
 -- The next day has a separate bonus record and allowance.
 player(11,'BONUS');makeBonus('BONUS',3)
 eq(claimBonus(11).ok,true)
+
+-- Automatic settlement is server-only, runs at rollover/login, and shares the payout ledger.
+local eligibleAuto={}
+local autoAfter=DQ.period('daily',now,Config.Reset).finish
+local function allowAuto(record,kind)
+    eligibleAuto[(kind or 'quest')..':'..record.id]={record=record,kind=kind or 'quest'}
+end
+DQStore.expiredDaily=function(cid,timestamp)
+    local result={}
+    for _,entry in pairs(eligibleAuto) do
+        local r=entry.record
+        local complete=entry.kind=='daily_bonus' and r.completed_count==r.required_count and r.assigned_count==r.required_count
+            or entry.kind=='quest' and r.progress>=r.target
+        if r.citizenid==cid and r.status=='active' and r.ends_at<=timestamp and r.ends_at>=autoAfter
+            and (entry.kind=='daily_bonus' or r.period_kind=='daily') and complete and r.selected~=false then
+            local out=copy(r);out.claim_kind=entry.kind;out.period_kind='daily';result[#result+1]=out
+        end
+    end
+    return result
+end
+DQStore.reserveExpired=function(cid,candidate,timestamp)
+    local entry=eligibleAuto[candidate.claim_kind..':'..candidate.id]
+    if not entry then return false end
+    local r=entry.record
+    if r.citizenid~=cid or r.status~='active' or r.ends_at>timestamp or r.ends_at<autoAfter then return false end
+    r.status='pending';hook('reserveExpired',r);return true
+end
+player(30,'AUTO');list(30)
+local autoPeriod=DQ.period('daily',now,Config.Reset).start
+for _,id in ipairs({'daily_visit','daily_time','daily_meals'}) do
+    local r=row('AUTO',id);r.progress=r.target;allowAuto(r)
+end
+local autoBonus=makeBonus('AUTO',3);allowAuto(autoBonus,'daily_bonus')
+local weeklyAuto=row('AUTO','weekly_time');weeklyAuto.progress=weeklyAuto.target;weeklyAuto.ends_at=autoAfter;allowAuto(weeklyAuto)
+local unselected=row('AUTO','daily_house');unselected.progress=unselected.target;unselected.selected=false;allowAuto(unselected)
+players={ [30]=players[30] }
+before=#payments
+advance(autoAfter-now);resume(threads[2])
+eq(#payments,before+4,'three daily rewards and the full-clear bonus are automatic')
+sum=0;for i=before+1,#payments do sum=sum+payments[i].amount end
+eq(sum,650000);eq(autoBonus.status,'claimed');eq(weeklyAuto.status,'active');eq(unselected.status,'active')
+eq(notifications[#notifications][1],'ox_lib:notify')
+before=#payments;advance(31);list(30)
+eq(#payments,before,'automatic settlement never repeats paid rewards')
+eq(claim(30,'daily_visit',autoPeriod).error,'expired','manual expiry guard remains')
+eq(claimBonus(30,autoPeriod).error,'expired')
+-- No offline money mutation: persistent claims are picked up automatically on the next login.
+player(31,'AUTO_OFFLINE');list(31)
+for _,id in ipairs({'daily_visit','daily_time','daily_meals'}) do local r=row('AUTO_OFFLINE',id);r.progress=r.target;allowAuto(r) end
+local offlineBonus=makeBonus('AUTO_OFFLINE',3);allowAuto(offlineBonus,'daily_bonus')
+_G.source=31;handlers.playerDropped();players={}
+before=#payments;advance(offlineBonus.ends_at-now);resume(threads[2])
+eq(#payments,before,'offline player is not paid through an unsafe offline API')
+player(31,'AUTO_OFFLINE');resume(threads[2])
+eq(#payments,before+4,'login catches up without opening the quest menu')
+player(31,'AUTO_OFFLINE');resume(threads[2]);eq(#payments,before+4,'fresh session preserves claim status')
+-- Work observed just before reset is flushed before auto-claim eligibility is queried.
+now=DQ.period('daily',now,Config.Reset).finish-15;timer=timer+1000000
+player(32,'AUTO_TIME');list(32)
+local timed=row('AUTO_TIME','daily_time');timed.progress=timed.target-10;allowAuto(timed)
+players={ [32]=players[32] }
+before=#payments;advance(15);resume(threads[2])
+eq(timed.status,'claimed');eq(#payments,before+1,'last interval can finish and settle yesterday')
+-- Unknown provider outcome stays pending; explicit rejection retries after the interval.
+local function pastReward(id,cid)
+    player(id,cid)
+    open(cid,now-86400)
+    local r=row(cid,'daily_time',-86400);r.progress=r.target;allowAuto(r)
+    return r
+end
+local unknown=pastReward(33,'AUTO_UNKNOWN')
+hooks.afterGrant=function() error('unknown automatic payout') end
+before=#payments;list(33)
+eq(unknown.status,'pending');eq(#payments,before+1)
+hooks.afterGrant=nil;advance(31);list(33);eq(#payments,before+1,'pending is never retried automatically')
+local retry=pastReward(34,'AUTO_RETRY')
+hooks.grant=function() return false end
+before=#payments;list(34);eq(retry.status,'active');eq(#payments,before)
+hooks.grant=nil;advance(31);list(34)
+eq(retry.status,'claimed');eq(#payments,before+1)
+local switched=pastReward(35,'AUTO_OLD')
+hooks.reserveExpired=function() player(35,'AUTO_NEW') end
+before=#payments;list(35)
+eq(switched.status,'active');eq(#payments,before,'source reuse cannot redirect an automatic reward')
+hooks.reserveExpired=nil
 -- A shortage still exposes preferences instead of locking the user out of setup.
 local oldState=DQStore.boardState
 DQStore.ensureBoards=function() return false,'no_candidates' end

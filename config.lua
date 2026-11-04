@@ -5,6 +5,7 @@ Config.Command = 'dailyquest'
 Config.Key = 'F11'
 Config.Reset = { offsetMinutes = 540, hour = 5, weekDay = 1 } -- JST / 月曜=1、日曜=7
 Config.TickSeconds = 15
+Config.AutoClaim = { intervalSeconds=30, batchSize=25 }
 Config.AutoCreateTables = true
 Config.RequestCooldownMs = 1000
 Config.ConsumeCooldownSeconds = 3

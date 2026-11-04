@@ -74,7 +74,7 @@ quest.quick = false
 
 ## 既存版からの更新
 
-抽選用の preferences / boards / assignments と全クリア報酬用の bonuses を含め、専用テーブルは合計8つです。
+抽選用の preferences / boards / assignments と全クリア報酬用の bonuses を含め、自動受取開始時刻の automation を含め専用テーブルは合計9つです。
 AutoCreateTables=trueなら起動時に追加します。無効なら sql/schema.sql を再適用してください。
 既存テーブル・既存の受取状態は削除しません。
 
@@ -85,3 +85,5 @@ AutoCreateTables=trueなら起動時に追加します。無効なら sql/schema
 更新は可能なら週次更新時刻に合わせ、更新後のキャラクターに初回設定を案内してください。
 
 全クリア報酬は現在提示中のデイリー全件が対象で、交換済み・未提示・週次クエストの達成は数えません。[報酬仕様](rewards.md)を参照してください。
+
+日次更新では新しい抽選とともに、旧日の達成済み未受取報酬を自動受取します。週次の受取期限は変わりません。[日次更新の詳細](daily-reset.md)。

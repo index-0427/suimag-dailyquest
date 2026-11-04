@@ -12,6 +12,7 @@ dofile('server/store.lua')
 dofile('server/selection.lua')
 dofile('server/boards.lua')
 dofile('server/bonuses.lua')
+dofile('server/settlement.lua')
 local plans, selected = {}, nil
 MySQL={transaction={await=function(queries) plans[selected]=plans[selected] or {};for _,q in ipairs(queries) do plans[selected][#plans[selected]+1]=q end;return true end}}
 local function plan(name,fn) selected=name;fn() end

@@ -1,6 +1,8 @@
 local prefix = 'suimag-dailyquest:'
 local busy, generation, lastList = false, 0, nil
 local open
+local countdown,overlayStamp
+local overlayVisible,nextRefresh=false,0
 
 local errors = {
     setup_required = '最初に抽選設定を保存してください。',
@@ -125,6 +127,10 @@ local function reroll(quest)
 end
 local function render(data, selected)
     local root = prefix .. 'root'
+    if not data.needsSetup and type(data.dailyResetAt)=='number' and type(data.serverNow)=='number' then
+        countdown={seconds=math.max(0,data.dailyResetAt-data.serverNow),at=GetGameTimer(),label=data.dailyReset}
+    else countdown=nil end
+    overlayStamp=nil
     if data.needsSetup then
         lib.registerContext({id=root,title='クエストを始める',options={{
             title='初回の抽選設定',icon='sliders',
@@ -140,7 +146,9 @@ local function render(data, selected)
         local title = kind == 'daily' and 'デイリー' or 'ウィークリー'
         local reset = kind == 'daily' and data.dailyReset or data.weeklyReset
         local options = {
-            { title = '次回更新: ' .. reset, description = '期限を過ぎた報酬は受け取れません。', icon = 'clock', readOnly = true },
+            { title = '次回更新: ' .. reset, description = kind=='daily'
+                and '達成済みの未受取報酬は更新時に自動受取。オフライン中は次回ログイン時に受け取ります。'
+                or 'ウィークリー報酬は期限内に受け取ってください。', icon = 'clock', readOnly = true },
         }
         options[#options+1]={title='リロール残り '..data.rerolls[kind]..'回',
             description='未達成のクエストを選択して1件交換できます。',icon='shuffle',readOnly=true}
@@ -227,6 +235,9 @@ local function close()
     generation = generation + 1
     local operation=busy
     busy=false
+    countdown,overlayStamp=nil,nil
+    if overlayVisible then SendNUIMessage({action=prefix..'countdown',visible=false}) end
+    overlayVisible=false
     if type(operation)=='table' and operation.kind=='preferences' then lib.closeInputDialog() end
     if type(operation)=='table' and operation.kind=='reroll' then lib.closeAlertDialog() end
     local context = lib.getOpenContextMenu()
@@ -236,4 +247,47 @@ end
 RegisterNetEvent('QBCore:Client:OnPlayerUnload', close)
 AddEventHandler('onResourceStop', function(name)
     if name == GetCurrentResourceName() then close() end
+end)
+
+-- A passive NUI badge counts locally, avoiding an ox_lib menu reopen every second.
+RegisterNUICallback('countdownReady',function(_,cb)
+    overlayStamp=nil
+    cb({})
+end)
+
+CreateThread(function()
+    while true do
+        Wait(250)
+        local context=lib.getOpenContextMenu()
+        local own=context==prefix..'root' or context==prefix..'daily' or context==prefix..'weekly'
+        local visible=own and not busy and countdown~=nil
+        if visible then
+            local now=GetGameTimer()
+            local delta=now-countdown.at
+            local remaining=math.max(0,countdown.seconds-math.max(0,delta)/1000)
+            if delta<0 then
+                countdown.seconds,countdown.at=0,now
+                remaining,nextRefresh=0,now
+                overlayStamp=nil
+            end
+            if not overlayVisible or overlayStamp~=countdown then
+                SendNUIMessage({action=prefix..'countdown',visible=true,remaining=remaining,resetLabel=countdown.label})
+                overlayVisible,overlayStamp=true,countdown
+            end
+            if (remaining<=0 or delta<0) and now>=nextRefresh then
+                nextRefresh=now+5000
+                local operation,epoch={},generation
+                busy=operation
+                local result=request('list')
+                if busy==operation then busy=false end
+                -- Never steal focus from a closed menu, a dialog or another resource.
+                if epoch==generation and lib.getOpenContextMenu()==context and result.ok then
+                    render(result,context==prefix..'root' and nil or context:sub(#prefix+1))
+                end
+            end
+        elseif overlayVisible then
+            SendNUIMessage({action=prefix..'countdown',visible=false})
+            overlayVisible=false
+        end
+    end
 end)

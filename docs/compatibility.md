@@ -13,7 +13,8 @@ Qbox + ox_inventory を使用するFiveMサーバー向けです。ESXやqb-inve
 | oxmysql | 2.12.3 | query / single / update / transaction のawait |
 
 Qboxの直接exportを使用し、qb-core互換ブリッジには依存しません。
-UIは既存ox_libを使用するため、電話リソース・追加NUIビルドへの依存もありません。
+メニューは既存ox_libを使用し、カウントダウンだけを同梱の小さなNUIで表示します。電話リソース・追加ビルドへの依存はありません。
+カウントダウンはNUIフォーカスを取得せず、別リソースのUIを開き直しません。
 
 ## 連携上の前提
 

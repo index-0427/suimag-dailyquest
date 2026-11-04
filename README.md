@@ -4,9 +4,10 @@ FiveM / Qbox 用のデイリー・ウィークリークエスト。Luaのみ、�
 F11 または `/dailyquest` で ox_lib のメニューを開き、進捗を確認して達成報酬を受け取ります。
 
 - 日次20候補から3件・週次20候補から2件をキャラクター別に抽選。日次は短時間枠を最低1件
-- 日次は毎日 **JST 05:00**、週次は **月曜 JST 05:00** に更新。サーバーOSのタイムゾーンに依存しない
+- 日次は毎日 **JST 05:00**、週次は **月曜 JST 05:00** に更新。画面を開いている間は日次更新までのカウントダウンを表示
 - 初回の属性設定、犯罪／職業・所属必須の除外、未達成1件を日次・週次各1回リロール
 - 共通の銀行報酬：デイリー1件15万、全クリア追加20万、ウィークリー1件50万
+- 日次更新時に達成済み・未受取の通常報酬と全クリア報酬を自動受取。オフライン中は次回ログイン時に受取
 - 進捗と受取状態を専用SQLテーブルに保存。再接続・リソース再起動後も継続
 - 同時受取をSQLの条件付き更新で排他。結果不明の配布は保留し、自動で再配布しない
 - 既存ジョブの自動連携、永続クールダウン、新規連携向けexportと完了IDによる重複排除
@@ -25,7 +26,9 @@ F11 または `/dailyquest` で ox_lib のメニューを開き、進捗を確�
 初期設定では、日次全クリアで合計65万、週次2件で合計100万です。全クリア報酬はデイリー画面の専用項目から1日1回受け取れます。
 接続時間には離席を含み、キャラクター選択画面・オフライン時間は含みません。導入前の実績は遡及しません。
 接続したまま午前5時をまたいだ場合も新しい日の参加として数えます。
-期限までに手動で受け取らなかった報酬は失効します。
+日次の達成済み未受取報酬は更新後に自動受取します。週次は従来どおり期限内に手動で受け取ってください。
+自動受取はこの機能の初回起動後に迎える日次更新から有効で、導入前に失効した過去の報酬は遡及しません。
+詳しくは [更新表示と自動受取](docs/daily-reset.md) を参照してください。
 
 ## 導入
 
@@ -35,7 +38,7 @@ OneSync有効環境で使用します。必要なリソース: `oxmysql` / `ox_l
 1. リポジトリを **suimag-dailyquest** というフォルダ名で配置します。単一インスタンスのみ対応します。
 2. 旧バトルパスとその連携リソースの起動指定を整理します。`ensure [standalone]` などのカテゴリ起動にも注意してください。
 3. 依存リソース・カテゴリ起動の後に下記を設定します。同じ依存の ensure を追加する必要はありません。
-4. 起動時に `sql/schema.sql` の専用8テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
+4. 起動時に `sql/schema.sql` の専用9テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
 5. コンソールで `dailyquest_status`、ゲーム内で `/dailyquest` を確認します。
 
 ```cfg
@@ -52,7 +55,7 @@ ensure suimag-dailyquest
 このリポジトリの実装・ローカル検証では **接続先への配置、DB操作、stop/ensure/restartは実行していません**。
 実機導入手順と確認項目は [運用・受入確認](docs/operations.md) にあります。
 
-1.3.0では全クリア報酬用の bonuses テーブルを追加します。自動作成が無効なら sql/schema.sql を再適用してください。1.1.0以前からは preferences / boards / assignments も必要です。
+1.4.0では自動受取の開始時刻を保存する automation テーブルを追加します。1.3.0からは全クリア報酬用の bonuses も必要です。自動作成が無効なら sql/schema.sql を再適用してください。1.1.0以前からは preferences / boards / assignments も必要です。
 
 ## 設定
 
@@ -128,8 +131,8 @@ exports['suimag-dailyquest']:OpenQuests()
 
 ## 保存と障害時の扱い
 
-専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_events`、`suimag_dailyquest_signal_gates`、`suimag_dailyquest_preferences`、`suimag_dailyquest_boards`、`suimag_dailyquest_assignments`、`suimag_dailyquest_bonuses` です。
-既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの8テーブルもバックアップしてください。
+専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_events`、`suimag_dailyquest_signal_gates`、`suimag_dailyquest_preferences`、`suimag_dailyquest_boards`、`suimag_dailyquest_assignments`、`suimag_dailyquest_bonuses`、`suimag_dailyquest_automation` です。
+既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの9テーブルもバックアップしてください。
 
 接続時間は約15秒ごとに保存します。切断・正常停止・強制終了で最後の未保存区間を失う場合があります。
 DB障害で結果不明の時間加算は再送しません。長いサーバーストールや時計の大幅な変化中の時間も加算しません。
@@ -146,7 +149,7 @@ Qboxの所持金保存・ox_inventoryの保存と当リソースのSQLは**同�
 
 ## 開発・検証
 
-Lua 5.4、Python 3、MariaDBのサーバー／クライアントが必要です。追加言語パッケージ不要。
+Lua 5.4、Node.js、Python 3、MariaDBのサーバー／クライアントが必要です。追加言語パッケージ不要。
 
 ```bash
 find . -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -n1 luac -p
@@ -157,8 +160,11 @@ lua tests/client_spec.lua
 lua tests/catalog_spec.lua
 lua tests/selection_spec.lua
 lua tests/boards_spec.lua
+lua tests/settlement_spec.lua
 lua tests/tracking_spec.lua
 lua tests/adapters_spec.lua
+node --check ui/countdown.js
+node tests/countdown_spec.js
 python3 tests/sql_spec.py
 ```
 

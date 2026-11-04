@@ -74,6 +74,7 @@ function S.init()
     MySQL.query.await('SELECT id, citizenid, quest_id, period_kind, period_start, ends_at, target, progress, reward_type, reward_name, reward_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_progress LIMIT 0')
     MySQL.query.await('SELECT citizenid, day_start FROM suimag_dailyquest_visits LIMIT 0')
     MySQL.query.await('SELECT citizenid, activity, receipt, processed, created_at FROM suimag_dailyquest_events LIMIT 0')
+    S.initSettlement()
 end
 
 function S.open(citizenid, now, assignments)

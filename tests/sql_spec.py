@@ -365,6 +365,67 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         eq(scalar(statement("reserveBonus",[1793822400,expired_id,"EXPIRED_BONUS",1793822400])+";SELECT ROW_COUNT();"),"0","expired bonus rejected")
         execute(board_plan("board_open_rewards"))
         eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_bonuses WHERE citizenid='DRAW' AND period_start=1793736000;"),"1","opening repeatedly never duplicates a bonus")
+        # Durable activation watermark: only resets after enabling the feature are eligible.
+        cutoff=1793822400
+        execute(statement("initSettlement",[cutoff]))
+        eq(scalar(SQL["settlementStart"]),str(cutoff),"first automatic settlement boundary")
+        execute(statement("initSettlement",[cutoff+86400]))
+        eq(scalar(SQL["settlementStart"]),str(cutoff),"resource restart preserves activation boundary")
+
+        def auto_rows(owner, timestamp):
+            return execute(statement("expiredDaily",[owner,timestamp,cutoff,owner,timestamp,cutoff,25])).stdout.strip().splitlines()
+
+        owner="AUTO_SQL"
+        execute(board_plan("board_draw",owner))
+        execute(board_plan("board_open_rewards",owner))
+        execute(f"UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='{owner}';")
+        # Make a weekly row overdue too: it must still never enter daily auto settlement.
+        execute(f"UPDATE suimag_dailyquest_progress SET ends_at={cutoff} WHERE citizenid='{owner}' AND period_kind='weekly';")
+        eq(len(auto_rows(owner,cutoff-1)),0,"automatic payment never precedes reset")
+        eq(len(auto_rows(owner,cutoff)),4,"three daily claims plus bonus are due at reset")
+        eq(len(auto_rows(owner,cutoff+3*86400)),4,"offline/server-stop backlog does not expire")
+        old_id=int(scalar(f"SELECT id FROM suimag_dailyquest_progress WHERE citizenid='{owner}' AND quest_id='{meta['daily']}';"))
+        eq(scalar(statement("reserve",[cutoff,old_id,owner,cutoff])+";SELECT ROW_COUNT();"),"0","manual expired claim remains rejected")
+        auto_reserve=statement("reserveExpiredDaily",[cutoff,old_id,owner,cutoff,cutoff])
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results=list(pool.map(lambda _:scalar(auto_reserve+";SELECT ROW_COUNT();"),range(8)))
+        eq(sorted(results),["0"]*7+["1"],"automatic claim reserves once under concurrency")
+        eq(len(auto_rows(owner,cutoff)),3,"uncertain pending claim is not retried automatically")
+        execute(statement("release",[old_id]))
+        eq(len(auto_rows(owner,cutoff)),4,"explicit provider failure is eligible for retry")
+        eq(scalar(auto_reserve+";SELECT ROW_COUNT();"),"1","retry reserves after explicit rejection")
+        execute(statement("finish",[cutoff+1,old_id]))
+        eq(len(auto_rows(owner,cutoff)),3,"paid claim disappears from backlog")
+        auto_bonus_id=int(bonus_value("id",owner=owner))
+        auto_bonus_reserve=statement("reserveExpiredBonus",[cutoff,auto_bonus_id,owner,cutoff,cutoff])
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results=list(pool.map(lambda _:scalar(auto_bonus_reserve+";SELECT ROW_COUNT();"),range(8)))
+        eq(sorted(results),["0"]*7+["1"],"automatic completion bonus reserves once")
+        execute(statement("finishBonus",[cutoff+1,auto_bonus_id]))
+        eq(len(auto_rows(owner,cutoff)),2,"bonus stays paid after restart/next read")
+        weekly_id=int(scalar(f"SELECT id FROM suimag_dailyquest_progress WHERE citizenid='{owner}' AND period_kind='weekly' LIMIT 1;"))
+        eq(scalar(statement("reserveExpiredDaily",[cutoff,weekly_id,owner,cutoff,cutoff])+";SELECT ROW_COUNT();"),"0","weekly automatic payout is impossible")
+        eq(scalar(statement("reserveExpiredDaily",[cutoff,old_id,"OTHER",cutoff,cutoff])+";SELECT ROW_COUNT();"),"0","automatic claims are character-bound")
+        # New-day incomplete rewards and retired assignments are excluded.
+        reroll_owner="AUTO_REROLL"
+        execute(board_plan("board_draw",reroll_owner))
+        execute(board_plan("board_reroll_daily",reroll_owner))
+        execute(board_plan("board_open_rewards",reroll_owner))
+        execute(f"UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='{reroll_owner}';")
+        eq(len(auto_rows(reroll_owner,cutoff)),4,"retired completed quest does not add an extra auto reward")
+        retired_id=int(scalar(f"SELECT id FROM suimag_dailyquest_progress WHERE citizenid='{reroll_owner}' AND quest_id='{meta['daily']}';"))
+        eq(scalar(statement("reserveExpiredDaily",[cutoff,retired_id,reroll_owner,cutoff,cutoff])+";SELECT ROW_COUNT();"),"0","retired automatic claim rejected")
+        incomplete_owner="AUTO_INCOMPLETE"
+        execute(board_plan("board_draw",incomplete_owner))
+        execute(board_plan("board_open_rewards",incomplete_owner))
+        eq(len(auto_rows(incomplete_owner,cutoff)),0,"incomplete rewards and bonus are not paid")
+        # A stale expired record from before feature activation is never resurrected.
+        legacy="AUTO_LEGACY"
+        execute(board_plan("board_draw",legacy))
+        execute(board_plan("board_open_rewards",legacy))
+        execute(f"UPDATE suimag_dailyquest_progress SET progress=target,ends_at={cutoff-86400} WHERE citizenid='{legacy}';")
+        execute(f"UPDATE suimag_dailyquest_bonuses SET ends_at={cutoff-86400} WHERE citizenid='{legacy}';")
+        eq(len(auto_rows(legacy,cutoff)),0,"pre-feature expired rewards stay expired")
         print(f"sql: {checks} assertions passed (isolated MariaDB, no network)")
     finally:
         daemon.terminate()

@@ -4,6 +4,7 @@ local ready = false
 local resource = GetCurrentResourceName()
 assert(resource == 'suimag-dailyquest', 'Resource folder must be named suimag-dailyquest (one instance only)')
 local prefix = 'suimag-dailyquest:'
+local settleDaily
 
 local function log(message)
     print(('[%s] %s'):format(resource, message))
@@ -50,6 +51,17 @@ local function flushTime(session,now)
     if #tracked>0 then DQStore.tracked(session.citizenid,tracked) end
 end
 
+local function maybeSettle(source,session,now)
+    if not session.preferences then return end
+    local day=DQ.period('daily',now,Config.Reset).start
+    if session.autoDay~=day then session.autoDay=day;session.nextAuto=nil end
+    if session.nextAuto and now<session.nextAuto then return end
+    session.nextAuto=now+Config.AutoClaim.intervalSeconds
+    -- Persist observations up to the boundary before deciding what yesterday completed.
+    flushTime(session,now)
+    if current(source,session) then settleDaily(source,session,now) end
+end
+
 local function run(source, fn, allowSetup, skipDraw)
     source = tonumber(source)
     if not DQ.integer(source, 1) then return { ok = false, error = 'player_unavailable' } end
@@ -82,6 +94,8 @@ local function run(source, fn, allowSetup, skipDraw)
             session.preferences=DQStore.preferences(citizenid) or false
             if not current(source,session) then return {ok=false,error='player_unavailable'} end
             if session.preferences then
+                maybeSettle(source,session,os.time())
+                if not current(source,session) then return {ok=false,error='player_unavailable'} end
                 local data=exports.qbx_core:GetPlayer(source).PlayerData
                 local initialized,err=DQStore.ensureBoards(citizenid,session.preferences,data,GetResourceState,now)
                 if not initialized then
@@ -97,6 +111,8 @@ local function run(source, fn, allowSetup, skipDraw)
         end
         if not current(source,session) then return {ok=false,error='player_unavailable'} end
         if not session.preferences and not allowSetup then return {ok=false,error='setup_required'} end
+        if not skipDraw then maybeSettle(source,session,os.time()) end
+        if not current(source,session) then return {ok=false,error='player_unavailable'} end
         return fn(session,now)
     end, debug.traceback)
     locks[citizenid] = nil
@@ -187,19 +203,24 @@ local function snapshot(source)
             drawError=session.drawError,
             rerolls={daily=session.boards.daily and 1-tonumber(session.boards.daily.rerolls_used) or 0,
                 weekly=session.boards.weekly and 1-tonumber(session.boards.weekly.rerolls_used) or 0},
+            serverNow=os.time(),
+            dailyResetAt=DQ.period('daily',now,Config.Reset).finish,
             dailyReset = DQ.resetLabel(DQ.period('daily', now, Config.Reset).finish, Config.Reset),
             weeklyReset = DQ.resetLabel(DQ.period('weekly', now, Config.Reset).finish, Config.Reset),
         }
     end,true)
 end
 
-local function deliverReserved(source,session,row,kind)
+local function deliverReserved(source,session,row,kind,automatic)
     local bonus=kind=='daily_bonus'
     local release=bonus and DQStore.releaseBonus or DQStore.release
     local finish=bonus and DQStore.finishBonus or DQStore.finish
     local claimKey=bonus and ('bonus:'..row.id) or row.id
     -- No reward may be issued after a DB yield without checking identity and expiry again.
-    if not current(source, session) or os.time() >= row.ends_at or conflict() then
+    local invalidTime
+    if automatic then invalidTime=row.period_kind~='daily' or os.time()<row.ends_at
+    else invalidTime=os.time()>=row.ends_at end
+    if not current(source, session) or invalidTime or conflict() then
         release(row.id)
         return { ok = false, error = 'claim_unavailable' }
     end
@@ -226,6 +247,26 @@ local function deliverReserved(source,session,row,kind)
         return { ok = false, error = 'pending', claimId = claimKey }
     end
     return { ok = true }
+end
+
+settleDaily=function(source,session,now)
+    local result=DQAuto.collect(source,session,now,current,deliverReserved)
+    if not current(source,session) then return end
+    if result.quests+result.bonuses>0 then
+        local money={}
+        if result.bank>0 then money[#money+1]=('銀行 $%d'):format(result.bank) end
+        if result.cash>0 then money[#money+1]=('現金 $%d'):format(result.cash) end
+        TriggerClientEvent('ox_lib:notify',source,{
+            title='デイリー報酬の自動受取',type='success',
+            description=('クエスト%d件・全クリア%d件の報酬を受け取りました。%s'):format(result.quests,result.bonuses,table.concat(money,' / ')),
+        })
+    end
+    if result.pending>0 then
+        TriggerClientEvent('ox_lib:notify',source,{
+            title='デイリー報酬の確認待ち',type='warning',
+            description='一部の報酬は成否の確認待ちになりました。重複配布を避けるため自動再配布はしません。',
+        })
+    end
 end
 
 local function claim(source, questId, periodStart)

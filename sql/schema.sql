@@ -89,3 +89,9 @@ CREATE TABLE IF NOT EXISTS suimag_dailyquest_bonuses (
     UNIQUE KEY character_day (citizenid, period_start),
     KEY pending_bonuses (status, attempted_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS suimag_dailyquest_automation (
+    id TINYINT UNSIGNED NOT NULL,
+    daily_after BIGINT UNSIGNED NOT NULL,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

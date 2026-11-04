@@ -1,5 +1,6 @@
 dofile('config.lua')
 local commands, exposed, handlers, contexts, notices = {}, {}, {}, {}, {}
+local threads,nuiCallbacks,nuiMessages={},{},{}
 local clock, menu, registeredKey, requests, mode, count = 10000, nil, nil, {}, 'ok', 0
 local function eq(a,b,label)
     count=count+1;assert(a==b,(label or 'mismatch')..': '..tostring(a)..' ~= '..tostring(b))
@@ -16,7 +17,9 @@ local view={
 GetGameTimer=function() return clock end
 GetCurrentResourceName=function() return 'suimag-dailyquest' end
 Wait=function(ms) clock=clock+ms;coroutine.yield(ms) end
-CreateThread=function(fn) local co=coroutine.create(fn);while coroutine.status(co)~='dead' do local ok,err=coroutine.resume(co);assert(ok,err) end end
+CreateThread=function(fn) threads[#threads+1]=coroutine.create(fn) end
+RegisterNUICallback=function(name,fn) nuiCallbacks[name]=fn end
+SendNUIMessage=function(data) nuiMessages[#nuiMessages+1]=data end
 RegisterCommand=function(name,fn) commands[name]=fn end
 RegisterKeyMapping=function(_,_,_,key) registeredKey=key end
 RegisterNetEvent=function(name,fn) handlers[name]=fn end
@@ -43,7 +46,13 @@ lib={
     hideContext=function() menu=nil end,
 }
 dofile('client/main.lua')
-local function call(fn) CreateThread(fn) end
+local function drain(co)
+    while coroutine.status(co)~='dead' do local ok,err=coroutine.resume(co);assert(ok,err) end
+end
+local function call(fn)
+    drain(coroutine.create(fn))
+    for i=2,#threads do drain(threads[i]) end
+end
 local prefix='suimag-dailyquest:'
 eq(registeredKey,'F11','default quest key binding')
 call(commands.dailyquest)
@@ -183,4 +192,39 @@ for _,option in ipairs(contexts[prefix..'weekly'].options) do
     if option.title:find('全クリア',1,true) then weeklyBonus=true end
 end
 eq(weeklyBonus,false)
+
+-- Countdown visibility and boundary refresh use a local timer, not one server call per second.
+view.serverNow=1000;view.dailyResetAt=1010;mode='ok'
+call(commands.dailyquest)
+local timerThread=threads[1]
+local function tick()
+    local success,value=coroutine.resume(timerThread);assert(success,value);return value
+end
+eq(tick(),250)
+tick()
+eq(nuiMessages[#nuiMessages].visible,true)
+eq(nuiMessages[#nuiMessages].action,prefix..'countdown')
+before=#requests
+for _=1,8 do tick() end
+eq(#requests,before,'countdown ticks require no server polling')
+menu='other-resource:menu';tick()
+eq(nuiMessages[#nuiMessages].visible,false)
+eq(menu,'other-resource:menu','countdown does not take focus')
+call(commands.dailyquest)
+view.serverNow=1010;view.dailyResetAt=87410
+clock=clock+11000
+before=#requests;tick()
+eq(requests[before+1].name,prefix..'list','refresh once when the daily deadline passes')
+eq(menu,prefix..'root')
+tick();eq(nuiMessages[#nuiMessages].visible,true)
+eq(nuiMessages[#nuiMessages].remaining>86000,true,'new day countdown')
+-- A delayed automatic refresh must not reopen a menu closed while the callback was waiting.
+view.serverNow=2000;view.dailyResetAt=2000
+call(commands.dailyquest);mode='delayed';clock=clock+6000
+local value=tick()
+while value~='await' do value=tick() end
+menu='other-resource:menu';mode='ok';tick()
+eq(menu,'other-resource:menu','late auto-refresh cannot steal focus')
+handlers['QBCore:Client:OnPlayerUnload']()
+eq(nuiMessages[#nuiMessages].visible,false,'overlay clears on logout')
 io.write(('client: %d assertions passed\n'):format(count))

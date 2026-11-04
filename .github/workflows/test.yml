@@ -24,7 +24,10 @@ jobs:
           lua tests/catalog_spec.lua
           lua tests/selection_spec.lua
           lua tests/boards_spec.lua
+          lua tests/settlement_spec.lua
           lua tests/tracking_spec.lua
           lua tests/adapters_spec.lua
+          node --check ui/countdown.js
+          node tests/countdown_spec.js
       - name: Actual SQL with no external database
         run: python3 tests/sql_spec.py

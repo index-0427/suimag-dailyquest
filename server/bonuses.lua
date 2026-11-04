@@ -7,6 +7,8 @@ local completedCount = [[(SELECT COUNT(*) FROM suimag_dailyquest_assignments a
     WHERE a.citizenid=b.citizenid AND a.period_kind='daily' AND a.period_start=b.period_start
     AND a.active=1 AND p.progress>=p.target)]]
 
+S.bonusCounts={assigned=assignedCount,completed=completedCount}
+
 S.sql.ensureBonus = [[INSERT INTO suimag_dailyquest_bonuses
     (citizenid, period_start, ends_at, required_count, reward_type, reward_amount)
     SELECT citizenid, period_start, ends_at, ?, ?, ? FROM suimag_dailyquest_boards b
