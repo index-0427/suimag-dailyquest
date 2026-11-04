@@ -1,0 +1,25 @@
+name: Validate quests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua and isolated database test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.4 mariadb-server
+      - name: Lua syntax
+        run: find . -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -n1 luac -p
+      - name: Domain, server and client
+        run: |
+          TZ=UTC lua tests/domain_spec.lua
+          TZ=America/New_York lua tests/domain_spec.lua
+          lua tests/server_spec.lua
+          lua tests/client_spec.lua
+      - name: Actual SQL with no external database
+        run: python3 tests/sql_spec.py
