@@ -54,7 +54,7 @@ local function call(fn)
     for i=2,#threads do drain(threads[i]) end
 end
 local prefix='suimag-dailyquest:'
-eq(registeredKey,'F11','default quest key binding')
+eq(registeredKey,'F10','default quest key binding')
 call(commands.dailyquest)
 eq(menu,prefix..'root')
 eq(#contexts[prefix..'root'].options,4)

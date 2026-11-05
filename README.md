@@ -1,7 +1,7 @@
 # suimag-dailyquest
 
 FiveM / Qbox 用のデイリー・ウィークリークエスト。Luaのみ、ビルド不要です。
-F11 または `/dailyquest` で ox_lib のメニューを開き、進捗を確認して達成報酬を受け取ります。
+F10 または `/dailyquest` で ox_lib のメニューを開き、進捗を確認して達成報酬を受け取ります。
 
 - 日次20候補から3件・週次20候補から2件をキャラクター別に抽選。日次は短時間枠を最低1件
 - 日次は毎日 **JST 05:00**、週次は **月曜 JST 05:00** に更新。画面を開いている間は日次更新までのカウントダウンを表示
@@ -12,7 +12,7 @@ F11 または `/dailyquest` で ox_lib のメニューを開き、進捗を確�
 - 同時受取をSQLの条件付き更新で排他。結果不明の配布は保留し、自動で再配布しない
 - 既存ジョブの自動連携、永続クールダウン、新規連携向けexportと完了IDによる重複排除
 - 既存の `noob_battlepass` / `sky_battlepass` / `skybp_events` が起動中なら進行・受取を休止
-- 初期キー割当はF11。LB Phone・既存ジョブ・既存DBテーブルへの変更不要
+- 初期キー割当はF10。LB Phone・既存ジョブ・既存DBテーブルへの変更不要
 
 ## クエスト
 
@@ -66,7 +66,7 @@ ensure suimag-dailyquest
 - `metric`: `attendance`（参加日数）/ `playtime`（秒）/ `consume`（使用回数）/ `distance`（移動距離m）/ `duty`（勤務秒）/ `activity`（外部連携）
 - `target`: 正の整数。参加日数は日次1、週次最大7
 - 飲食対象は `Config.Consumables` の実在するアイテム名を指定。現在は対応環境で確認した `water` / `burger` のみ
-- `Config.Key` の初期値は `F11`。別のキーに変更でき、`nil` にするとキー登録を無効化
+- `Config.Key` の初期値は `F10`。別のキーに変更でき、`nil` にするとキー登録を無効化
 
 報酬は Config.Rewards のみで設定します。個別クエストに reward を書くと設定エラーになります。
 
