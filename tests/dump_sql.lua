@@ -28,8 +28,9 @@ DQStore.open=function(cid,now)
             if quest.period==kind then
                 slot=slot+1
                 queries[#queries+1]={query=DQStore.sql.assign,values={quest.id,slot,period.start,nonce,cid,kind,period.start,nonce}}
+                local coin,coinAmount=DQ.coins(quest)
                 queries[#queries+1]={query=DQStore.sql.ensureAssigned,values={
-                    cid,quest.id,kind,period.start,period.finish,quest.target,DQ.reward(quest.period).type,DQ.reward(quest.period).amount,
+                    cid,quest.id,kind,period.start,period.finish,quest.target,DQ.reward(quest.period).type,DQ.reward(quest.period).amount,coin,coinAmount,
                     cid,kind,period.start,nonce}}
                 assignments[quest.id]={period_start=period.start,assigned_at=period.start}
             end

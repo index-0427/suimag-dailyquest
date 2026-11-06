@@ -2,7 +2,7 @@ DQAuto = {}
 
 -- Called while the existing character lock is held. Only the server invokes this path.
 function DQAuto.collect(source,session,now,current,deliver)
-    local summary={quests=0,bonuses=0,bank=0,cash=0,pending=0}
+    local summary={quests=0,bonuses=0,bank=0,cash=0,pending=0,coins={}}
     local candidates=DQStore.expiredDaily(session.citizenid,now)
     for _,row in ipairs(candidates) do
         if not current(source,session) then break end
@@ -16,6 +16,9 @@ function DQAuto.collect(source,session,now,current,deliver)
                 local field=row.claim_kind=='daily_bonus' and 'bonuses' or 'quests'
                 summary[field]=summary[field]+1
                 summary[row.reward_type]=summary[row.reward_type]+row.reward_amount
+                if result.coinAmount and result.coinAmount>0 then
+                    summary.coins[result.coin]=(summary.coins[result.coin] or 0)+result.coinAmount
+                end
             elseif result.error=='pending' then summary.pending=summary.pending+1 end
         end
     end

@@ -5,13 +5,13 @@ S.sql.initSettlement = [[INSERT INTO suimag_dailyquest_automation (id,daily_afte
     ON DUPLICATE KEY UPDATE daily_after=daily_after]]
 S.sql.settlementStart = [[SELECT daily_after FROM suimag_dailyquest_automation WHERE id=1]]
 S.sql.expiredDaily = [[SELECT 'quest' AS claim_kind, id, citizenid, quest_id, period_kind, period_start, ends_at,
-    reward_type, reward_amount FROM suimag_dailyquest_progress p
+    reward_type, reward_amount, reward_coin, reward_coin_amount FROM suimag_dailyquest_progress p
     WHERE citizenid=? AND period_kind='daily' AND status='active' AND progress>=target AND ends_at<=? AND ends_at>=?
     AND EXISTS (SELECT 1 FROM suimag_dailyquest_assignments a WHERE a.citizenid=p.citizenid
         AND a.quest_id=p.quest_id AND a.period_start=p.period_start AND a.period_kind='daily' AND a.active=1)
     UNION ALL
     SELECT 'daily_bonus' AS claim_kind, id, citizenid, 'daily_complete_bonus' AS quest_id, 'daily' AS period_kind,
-    period_start, ends_at, reward_type, reward_amount FROM suimag_dailyquest_bonuses b
+    period_start, ends_at, reward_type, reward_amount, '' AS reward_coin, 0 AS reward_coin_amount FROM suimag_dailyquest_bonuses b
     WHERE citizenid=? AND status='active' AND ends_at<=? AND ends_at>=? AND required_count>0
     AND required_count=]] .. counts.assigned .. [[ AND required_count=]] .. counts.completed ..
     [[ ORDER BY ends_at, claim_kind, id LIMIT ?]]

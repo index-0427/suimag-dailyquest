@@ -8,7 +8,7 @@ end
 local view={
     ok=true,preferences={crime=true,employment=false},rerolls={daily=1,weekly=1},dailyReset='11/05 05:00 (UTC+09:00)',weeklyReset='11/09 05:00 (UTC+09:00)',
     quests={
-        {id='visit',period='daily',periodStart=123,title='Visit',description='Description',value=1,target=1,status='active',unit='日',scale=1,reward='銀行 $1000'},
+        {id='visit',period='daily',periodStart=123,title='Visit',description='Description',value=1,target=1,status='active',unit='日',scale=1,reward='銀行 $150000 + 黒コイン × 1'},
         {id='time',period='daily',periodStart=123,title='Time',description='Description',value=30,target=60,status='active',unit='分',scale=60,reward='銀行 $1000'},
         {id='pending',period='weekly',periodStart=123,title='Pending',description='Description',value=1,target=1,status='pending',unit='日',scale=1,reward='銀行 $1000'},
         {id='paid',period='weekly',periodStart=123,title='Paid',description='Description',value=1,target=1,status='claimed',unit='日',scale=1,reward='銀行 $1000'},
@@ -61,6 +61,7 @@ eq(#contexts[prefix..'root'].options,4)
 local daily=contexts[prefix..'daily'].options
 eq(daily[3].readOnly,false)
 eq(daily[3].progress,100)
+eq(daily[3].description:find('銀行 $150000 + 黒コイン × 1',1,true)~=nil,true)
 eq(daily[4].readOnly,true)
 eq(daily[4].progress,50)
 eq(daily[4].onSelect,nil)
@@ -68,6 +69,7 @@ local weekly=contexts[prefix..'weekly'].options
 eq(weekly[3].readOnly,true);eq(weekly[4].readOnly,true)
 call(daily[3].onSelect)
 eq(notices[#notices].type,'success')
+eq(notices[#notices].description,'銀行 $150000 + 黒コイン × 1 を受け取りました。')
 eq(menu,prefix..'daily')
 local claimRequest=requests[#requests-1]
 eq(claimRequest.name,prefix..'claim')

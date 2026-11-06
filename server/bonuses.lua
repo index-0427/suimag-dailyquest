@@ -16,8 +16,12 @@ S.sql.ensureBonus = [[INSERT INTO suimag_dailyquest_bonuses
     AND ]] .. assignedCount .. [[ = ? ON DUPLICATE KEY UPDATE id=id]]
 S.sql.syncBonusReward = [[UPDATE suimag_dailyquest_bonuses SET reward_type=?, reward_amount=?
     WHERE citizenid=? AND period_start<=? AND ends_at>? AND status='active']]
-S.sql.syncQuestRewards = [[UPDATE suimag_dailyquest_progress p SET reward_type=?, reward_amount=?
+S.sql.syncQuestRewards = [[UPDATE suimag_dailyquest_progress p SET reward_type=?, reward_amount=?, reward_coin='', reward_coin_amount=0
     WHERE citizenid=? AND period_kind=? AND period_start<=? AND ends_at>? AND status='active'
+    AND EXISTS (SELECT 1 FROM suimag_dailyquest_assignments a WHERE a.citizenid=p.citizenid
+        AND a.quest_id=p.quest_id AND a.period_start=p.period_start AND a.active=1)]]
+S.sql.syncQuestCoin = [[UPDATE suimag_dailyquest_progress p SET reward_coin=?, reward_coin_amount=?
+    WHERE citizenid=? AND quest_id=? AND period_start<=? AND ends_at>? AND status='active'
     AND EXISTS (SELECT 1 FROM suimag_dailyquest_assignments a WHERE a.citizenid=p.citizenid
         AND a.quest_id=p.quest_id AND a.period_start=p.period_start AND a.active=1)]]
 S.sql.bonusState = [[SELECT b.*, ]] .. assignedCount .. [[ AS assigned_count, ]]
@@ -27,10 +31,10 @@ S.sql.reserveBonus = [[UPDATE suimag_dailyquest_bonuses b SET status='pending', 
     AND required_count=]] .. assignedCount .. [[ AND required_count=]] .. completedCount
 S.sql.releaseBonus = [[UPDATE suimag_dailyquest_bonuses SET status='active', attempted_at=NULL WHERE id=? AND status='pending']]
 S.sql.finishBonus = [[UPDATE suimag_dailyquest_bonuses SET status='claimed', claimed_at=? WHERE id=? AND status='pending']]
-S.sql.pending = [[SELECT 'quest' AS claim_kind, id, citizenid, quest_id, period_start, attempted_at, reward_type, reward_amount
+S.sql.pending = [[SELECT 'quest' AS claim_kind, id, citizenid, quest_id, period_start, attempted_at, reward_type, reward_amount, reward_coin, reward_coin_amount
     FROM suimag_dailyquest_progress WHERE status='pending'
     UNION ALL
-    SELECT 'daily_bonus' AS claim_kind, id, citizenid, 'daily_complete_bonus' AS quest_id, period_start, attempted_at, reward_type, reward_amount
+    SELECT 'daily_bonus' AS claim_kind, id, citizenid, 'daily_complete_bonus' AS quest_id, period_start, attempted_at, reward_type, reward_amount, '' AS reward_coin, 0 AS reward_coin_amount
     FROM suimag_dailyquest_bonuses WHERE status='pending'
     ORDER BY attempted_at LIMIT 50]]
 
@@ -44,6 +48,12 @@ function S.rewardQueries(citizenid, now)
     for _,kind in ipairs({'daily','weekly'}) do
         local reward=DQ.reward(kind)
         queries[#queries+1]={query=S.sql.syncQuestRewards,values={reward.type,reward.amount,citizenid,kind,now,now}}
+    end
+    for _,quest in ipairs(Config.Quests) do
+        local coin,amount=DQ.coins(quest)
+        if amount>0 then
+            queries[#queries+1]={query=S.sql.syncQuestCoin,values={coin,amount,citizenid,quest.id,now,now}}
+        end
     end
     return queries
 end

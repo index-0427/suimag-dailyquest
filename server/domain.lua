@@ -26,6 +26,13 @@ function DQ.validate(config)
     for _,kind in ipairs({'daily','dailyComplete','weekly'}) do
         assert(DQ.integer(config.Rewards[kind],1,10000000), 'Invalid common reward amount')
     end
+    assert(type(config.CoinRewards)=='table', 'Missing coin rewards')
+    for _,kind in ipairs({'daily','weekly'}) do
+        assert(DQ.integer(config.CoinRewards[kind],1,255),'Invalid coin count')
+    end
+    for _,tag in ipairs({'crime','employment'}) do
+        assert(DQ.identifier(config.CoinRewards[tag]),'Invalid coin item')
+    end
     for name, value in pairs(config.Consumables) do
         assert(DQ.identifier(name) and value == true, 'Invalid consumable')
     end
@@ -137,4 +144,11 @@ end
 function DQ.reward(kind)
     assert(kind=='daily' or kind=='weekly' or kind=='dailyComplete', 'Invalid reward kind')
     return {type=Config.Rewards.account,amount=Config.Rewards[kind]}
+end
+
+function DQ.coins(quest)
+    local tags=quest.tags or {}
+    local tag=tags.crime and 'crime' or tags.employment and 'employment'
+    if not tag then return '',0 end
+    return Config.CoinRewards[tag],Config.CoinRewards[quest.period]
 end

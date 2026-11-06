@@ -167,6 +167,10 @@ local function snapshot(source)
             local row = byId[quest.id] and byId[quest.id][period.start]
             if row then
                 local rewardLabel = ('%s $%d'):format(row.reward_type == 'bank' and '銀行' or '現金', row.reward_amount)
+                if (tonumber(row.reward_coin_amount) or 0)>0 then
+                    local item=exports.ox_inventory:Items(row.reward_coin)
+                    rewardLabel=rewardLabel..(' + %s × %d'):format(item and item.label or row.reward_coin,row.reward_coin_amount)
+                end
                 quests[#quests + 1] = {
                     id = quest.id, period = quest.period, periodStart = period.start,
                     title = quest.title, description = quest.description,
@@ -210,6 +214,21 @@ local function deliverReserved(source,session,row,kind,automatic)
         release(row.id)
         return { ok = false, error = 'claim_unavailable' }
     end
+    local coinAmount=tonumber(row.reward_coin_amount or 0)
+    assert(DQ.integer(coinAmount,0,255),'Invalid saved coin count')
+    if coinAmount>0 then
+        assert(DQ.identifier(row.reward_coin),'Invalid saved coin item')
+        if not exports.ox_inventory:Items(row.reward_coin) then
+            release(row.id);return {ok=false,error='invalid_item'}
+        end
+        if not exports.ox_inventory:CanCarryItem(source,row.reward_coin,coinAmount) then
+            release(row.id);return {ok=false,error='inventory_full'}
+        end
+        local expired=automatic and os.time()<row.ends_at or not automatic and os.time()>=row.ends_at
+        if not current(source,session) or expired then
+            release(row.id);return {ok=false,error='claim_unavailable'}
+        end
+    end
     log(('Claim %s reserved for %s / %s'):format(claimKey, session.citizenid, row.quest_id or kind))
     local ok, delivered = pcall(function()
         return exports.qbx_core:AddMoney(source, row.reward_type, row.reward_amount, 'dailyquest:' .. claimKey)
@@ -223,13 +242,30 @@ local function deliverReserved(source,session,row,kind,automatic)
         log(('Claim %s is PENDING: reward outcome unknown; do not automatically retry.'):format(claimKey))
         return { ok = false, error = 'pending', claimId = claimKey }
     end
+    log(('Claim %s money delivered: %s %d.'):format(claimKey,row.reward_type,row.reward_amount))
+    if coinAmount>0 then
+        -- Money has already been delivered. Never release or retry the whole reward from here.
+        if not current(source,session) then
+            log(('Claim %s is PENDING: money delivered; character changed before coins.'):format(claimKey))
+            return {ok=false,error='pending',claimId=claimKey}
+        end
+        local coinOk,coinDelivered=pcall(function()
+            return exports.ox_inventory:AddItem(source,row.reward_coin,coinAmount)
+        end)
+        if not coinOk or coinDelivered~=true then
+            log(('Claim %s is PENDING: money delivered; coin %s x%d result=%s.'):format(
+                claimKey,row.reward_coin,coinAmount,coinOk and tostring(coinDelivered) or 'unknown'))
+            return {ok=false,error='pending',claimId=claimKey}
+        end
+        log(('Claim %s coins delivered: %s x%d.'):format(claimKey,row.reward_coin,coinAmount))
+    end
     log(('Claim %s reward provider returned success.'):format(claimKey))
     local saved, err = pcall(finish, row.id, os.time())
     if not saved then
         log(('Claim %s is PENDING after delivery: %s'):format(claimKey, tostring(err)))
         return { ok = false, error = 'pending', claimId = claimKey }
     end
-    return { ok = true }
+    return { ok = true, coin=row.reward_coin, coinAmount=coinAmount }
 end
 
 settleDaily=function(source,session,now)
@@ -239,6 +275,10 @@ settleDaily=function(source,session,now)
         local money={}
         if result.bank>0 then money[#money+1]=('銀行 $%d'):format(result.bank) end
         if result.cash>0 then money[#money+1]=('現金 $%d'):format(result.cash) end
+        for name,amount in pairs(result.coins) do
+            local item=exports.ox_inventory:Items(name)
+            money[#money+1]=('%s × %d'):format(item and item.label or name,amount)
+        end
         TriggerClientEvent('ox_lib:notify',source,{
             title='デイリー報酬の自動受取',type='success',
             description=('クエスト%d件・全クリア%d件の報酬を受け取りました。%s'):format(result.quests,result.bonuses,table.concat(money,' / ')),

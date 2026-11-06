@@ -20,7 +20,8 @@ io.write([[
 日次20候補から3件、週次20候補から2件をキャラクター別に固定抽選します。
 日次は短時間枠を最低1件含め、犯罪・職業必須の除外設定、実際の所属、連携元の稼働状態を反映します。
 [抽選・リロールのルール](selection.md) を参照してください。
-クエストのID・条件を維持し、報酬は全候補共通です。デイリー1件15万・ウィークリー1件50万。
+クエストのID・条件を維持し、金銭報酬は全候補共通です。デイリー1件15万・ウィークリー1件50万。
+犯罪タグには黒コイン、職業・所属必須タグには白コインを追加します。日次1枚・週次3枚です。
 日次はJST毎日05:00、週次はJST月曜05:00に更新します。
 
 デイリー全3件をクリアすると、追加20万を1日1回受け取れます（日次合計65万）。週次2件は合計100万です。
@@ -31,10 +32,13 @@ io.write([[
 ]])
 for _,period in ipairs({'daily','weekly'}) do
     io.write(period=='daily' and '## デイリー候補（20種類）\n\n' or '## ウィークリー候補（20種類）\n\n')
-    io.write('| ID | クエスト | 目標 | 銀行報酬 | 判定元 |\n| --- | --- | --- | ---: | --- |\n')
+    io.write('| ID | クエスト | 目標 | 報酬 | 判定元 |\n| --- | --- | --- | ---: | --- |\n')
     for _,q in ipairs(Config.Quests) do
         if q.period==period then
-            io.write(('| %s | %s | %s | $%d | %s |\n'):format(q.id,q.title,target(q),DQ.reward(q.period).amount,collector(q)))
+            local reward=('$%d'):format(DQ.reward(q.period).amount)
+            local coin,amount=DQ.coins(q)
+            if amount>0 then reward=reward..(' + %s × %d'):format(coin,amount) end
+            io.write(('| %s | %s | %s | %s | %s |\n'):format(q.id,q.title,target(q),reward,collector(q)))
         end
     end
     io.write('\n')

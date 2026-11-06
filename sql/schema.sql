@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS suimag_dailyquest_progress (
     progress INT UNSIGNED NOT NULL DEFAULT 0,
     reward_type ENUM('bank', 'cash') NOT NULL,
     reward_amount INT UNSIGNED NOT NULL,
+    reward_coin VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+    reward_coin_amount TINYINT UNSIGNED NOT NULL DEFAULT 0,
     status ENUM('active', 'pending', 'claimed') NOT NULL DEFAULT 'active',
     attempted_at BIGINT UNSIGNED NULL,
     claimed_at BIGINT UNSIGNED NULL,
@@ -85,3 +87,7 @@ CREATE TABLE IF NOT EXISTS suimag_dailyquest_automation (
     daily_after BIGINT UNSIGNED NOT NULL,
     PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE suimag_dailyquest_progress
+    ADD COLUMN IF NOT EXISTS reward_coin VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS reward_coin_amount TINYINT UNSIGNED NOT NULL DEFAULT 0;

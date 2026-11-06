@@ -20,12 +20,14 @@ S.sql.assign = [[INSERT INTO suimag_dailyquest_assignments (citizenid, period_ki
     SELECT citizenid, period_kind, period_start, ?, ?, ?, ? FROM suimag_dailyquest_boards
     WHERE citizenid = ? AND period_kind = ? AND period_start = ? AND token = ?]]
 S.sql.ensureAssigned = [[INSERT INTO suimag_dailyquest_progress
-    (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_amount)
-    SELECT ?, ?, ?, ?, ?, ?, ?, ? FROM suimag_dailyquest_boards
+    (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_amount, reward_coin, reward_coin_amount)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM suimag_dailyquest_boards
     WHERE citizenid = ? AND period_kind = ? AND period_start = ? AND token = ?
     ON DUPLICATE KEY UPDATE
         reward_type = IF(status='active',VALUES(reward_type),reward_type),
-        reward_amount = IF(status='active',VALUES(reward_amount),reward_amount)]]
+        reward_amount = IF(status='active',VALUES(reward_amount),reward_amount),
+        reward_coin = IF(status='active',VALUES(reward_coin),reward_coin),
+        reward_coin_amount = IF(status='active',VALUES(reward_coin_amount),reward_coin_amount)]]
 S.sql.clearBoardToken = [[UPDATE suimag_dailyquest_boards SET token = ''
     WHERE citizenid = ? AND period_kind = ? AND period_start = ? AND token = ?]]
 S.sql.takeReroll = [[UPDATE suimag_dailyquest_boards b SET rerolls_used = 1, token = ?
@@ -60,8 +62,9 @@ end
 local function assignmentQueries(queries, cid, quest, period, slot, now, nonce)
     queries[#queries+1] = q('assign', {quest.id,slot,now,nonce,cid,quest.period,period.start,nonce})
     local reward = DQ.reward(quest.period)
+    local coin,coinAmount = DQ.coins(quest)
     queries[#queries+1] = q('ensureAssigned', {
-        cid,quest.id,quest.period,period.start,period.finish,quest.target,reward.type,reward.amount,
+        cid,quest.id,quest.period,period.start,period.finish,quest.target,reward.type,reward.amount,coin,coinAmount,
         cid,quest.period,period.start,nonce,
     })
 end

@@ -421,6 +421,34 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(f"UPDATE suimag_dailyquest_progress SET progress=target,ends_at={cutoff-86400} WHERE citizenid='{legacy}';")
         execute(f"UPDATE suimag_dailyquest_bonuses SET ends_at={cutoff-86400} WHERE citizenid='{legacy}';")
         eq(len(auto_rows(legacy,cutoff)),0,"pre-feature expired rewards stay expired")
+        # Tag rewards persist in both periods and sync only active current assignments.
+        coin_owner='COIN_SQL'
+        execute(plan('open').replace('SQLTEST',coin_owner))
+        def saved_coin(qid):
+            return scalar(f"SELECT CONCAT(reward_coin,':',reward_coin_amount) FROM suimag_dailyquest_progress WHERE citizenid='{coin_owner}' AND quest_id='{qid}';")
+        for qid,item,count in [('daily_house','black_coin',1),('daily_boosting','black_coin',1),
+                               ('daily_duty','white_coin',1),('weekly_house','black_coin',3),
+                               ('weekly_boosting','black_coin',3),('weekly_duty','white_coin',3)]:
+            eq(saved_coin(qid),f'{item}:{count}',qid+' saved coin')
+        eq(saved_coin('daily_visit'),':0','untagged reward has no coin')
+        execute(f"UPDATE suimag_dailyquest_progress SET reward_coin_amount=9,status='pending' WHERE citizenid='{coin_owner}' AND quest_id='daily_house';")
+        execute(f"UPDATE suimag_dailyquest_progress SET reward_coin_amount=8,status='claimed' WHERE citizenid='{coin_owner}' AND quest_id='daily_duty';")
+        execute(f"UPDATE suimag_dailyquest_progress SET reward_coin_amount=7 WHERE citizenid='{coin_owner}' AND quest_id='weekly_duty';")
+        execute(plan('open').replace('SQLTEST',coin_owner))
+        eq(saved_coin('daily_house'),'black_coin:9','pending coins stay immutable')
+        eq(saved_coin('daily_duty'),'white_coin:8','claimed coins stay immutable')
+        eq(saved_coin('weekly_duty'),'white_coin:3','active coin reward refreshed')
+        execute(f"UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='{coin_owner}' AND quest_id='daily_boosting';")
+        archived=auto_rows(coin_owner,cutoff)
+        eq(any('black_coin\t1' in line for line in archived),True,'automatic query carries saved coin reward')
+        eq('black_coin' in execute(SQL['pending']).stdout,True,'pending diagnostics show coin entitlement')
+        # Re-applying the schema upgrades a pre-coin table without changing its money records.
+        execute('ALTER TABLE suimag_dailyquest_progress DROP COLUMN reward_coin, DROP COLUMN reward_coin_amount;')
+        before_migration=scalar('SELECT COUNT(*) FROM suimag_dailyquest_progress;')
+        execute(schema)
+        execute(schema)
+        eq(scalar('SELECT COUNT(*) FROM suimag_dailyquest_progress;'),before_migration,'coin migration preserves records')
+        eq(saved_coin('daily_visit'),':0','existing rows start without retroactive coins')
         # Existing installations can retain the old schema without a destructive migration.
         execute("ALTER TABLE suimag_dailyquest_progress "
                 "MODIFY reward_type ENUM('bank','cash','item') NOT NULL, "

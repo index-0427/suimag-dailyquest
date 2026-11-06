@@ -8,7 +8,7 @@ Qbox + ox_inventory を使用するFiveMサーバー向けです。ESXやqb-inve
 | リソース | 参照版 | 使用する機能 |
 | --- | --- | --- |
 | qbx_core | 1.23.0 | GetPlayer、AddMoney、サーバー内のPlayerLoaded / OnPlayerUnload |
-| ox_inventory | 2.45.0 | usedItem |
+| ox_inventory | 2.45.0 | usedItem、Items、CanCarryItem、AddItem |
 | ox_lib | 3.32.3 | サーバーcallback、context menu、notify |
 | oxmysql | 2.12.3 | query / single / update / transaction のawait |
 
@@ -39,8 +39,9 @@ Qboxの直接exportを使用し、qb-core互換ブリッジには依存しませ
 ## 既存DBからの更新
 
 現行の専用テーブルは8つです。旧版の完了ID管理テーブルやアイテム名の列は使用しません。
-既存DBの余分なテーブル・列を自動削除する処理はなく、そのまま更新できます。
-報酬付与はbank / cashのみ対応します。旧版のアイテム報酬の付与には対応しません。
+既存DBの余分なテーブル・列を自動削除する処理はありません。
+コイン報酬用にprogressのreward_coinとreward_coin_amountを追加します。自動作成が有効なら起動時に追加し、無効ならschema.sqlを事前適用します。
+金銭報酬はbank / cash、タグ別の追加報酬はblack_coin / white_coinです。旧版のアイテム単体報酬には対応しません。
 
 ## 40件カタログの追加要件
 

@@ -29,10 +29,12 @@ local function open(cid, timestamp)
         local k = key(cid, q.id, period.start)
         if not records[k] then
             nextId = nextId + 1
+            local coin,coinAmount=DQ.coins(q)
             records[k] = {
                 id=nextId, citizenid=cid, quest_id=q.id, period_kind=q.period,
                 period_start=period.start, ends_at=period.finish, target=q.target, progress=0,
                 reward_type=DQ.reward(q.period).type, reward_amount=DQ.reward(q.period).amount,
+                reward_coin=coin,reward_coin_amount=coinAmount,
                 status='active',
             }
         end
@@ -144,6 +146,20 @@ exports = {
             return true
         end,
     },
+}
+local coins={}
+exports.ox_inventory={
+    Items=function(_,name)
+        if hooks.missingItem then return nil end
+        if name=='black_coin' or name=='white_coin' then return {label=name=='black_coin' and '黒コイン' or '白コイン'} end
+    end,
+    CanCarryItem=function() hook('capacity');return not hooks.full end,
+    AddItem=function(_,id,name,amount)
+        if hooks.coinReject then return false end
+        coins[#coins+1]={id=id,cid=players[id].PlayerData.citizenid,name=name,amount=amount}
+        hook('afterCoin')
+        return true
+    end,
 }
 local logs={}
 print=function(message) logs[#logs+1]=message end
@@ -535,6 +551,84 @@ hooks.reserveExpired=function() player(35,'AUTO_NEW') end
 before=#payments;list(35)
 eq(switched.status,'active');eq(#payments,before,'source reuse cannot redirect an automatic reward')
 hooks.reserveExpired=nil
+-- Each tag/period pays its saved coin quantity alongside money, exactly once.
+player(40,'COINS');local coinView=list(40)
+local labels={};for _,q in ipairs(coinView.quests) do labels[q.id]=q.reward end
+for _,entry in ipairs({
+    {'daily_house','black_coin',1,150000},{'daily_boosting','black_coin',1,150000},
+    {'daily_duty','white_coin',1,150000},{'weekly_house','black_coin',3,500000},
+    {'weekly_boosting','black_coin',3,500000},{'weekly_duty','white_coin',3,500000},
+}) do
+    local id,item,amount,money=table.unpack(entry)
+    local r=row('COINS',id);r.progress=r.target
+    local priorMoney,priorCoins=#payments,#coins
+    eq(claim(40,id).ok,true);eq(#payments,priorMoney+1);eq(payments[#payments].amount,money)
+    eq(#coins,priorCoins+1);eq(coins[#coins].name,item);eq(coins[#coins].amount,amount)
+    eq(labels[id]:find(item=='black_coin' and '黒コイン' or '白コイン',1,true)~=nil,true)
+    eq(claim(40,id).error,'claimed');eq(#payments,priorMoney+1);eq(#coins,priorCoins+1)
+end
+local noCoinBefore=#coins;eq(claim(40,'daily_visit').ok,true);eq(#coins,noCoinBefore,'untagged quests have no coins')
+-- Inventory and configuration failures occur before money is paid and preserve the claim.
+player(41,'CAPACITY');list(41)
+local capacity=row('CAPACITY','daily_house');capacity.progress=capacity.target
+local priorMoney,priorCoins=#payments,#coins
+hooks.missingItem=true;eq(claim(41,'daily_house').error,'invalid_item');hooks.missingItem=nil
+eq(capacity.status,'active');eq(#payments,priorMoney);eq(#coins,priorCoins)
+hooks.reserve=function() hooks.full=true end
+eq(claim(41,'daily_house').error,'inventory_full');hooks.reserve=nil;hooks.full=nil
+eq(capacity.status,'active');eq(#payments,priorMoney);eq(#coins,priorCoins)
+hooks.grant=function() return false end
+eq(claim(41,'daily_house').error,'reward_failed');hooks.grant=nil
+eq(capacity.status,'active');eq(#coins,priorCoins)
+-- Partial or unknown delivery stays pending; retries never duplicate the money or coins.
+hooks.coinReject=true;eq(claim(41,'daily_house').error,'pending');hooks.coinReject=nil
+eq(capacity.status,'pending');eq(#payments,priorMoney+1);eq(#coins,priorCoins)
+eq(claim(41,'daily_house').error,'pending');eq(#payments,priorMoney+1);eq(#coins,priorCoins)
+local uncertain=row('CAPACITY','daily_duty');uncertain.progress=uncertain.target
+hooks.afterCoin=function() error('unknown coin outcome') end
+priorMoney,priorCoins=#payments,#coins
+eq(claim(41,'daily_duty').error,'pending');hooks.afterCoin=nil
+eq(#payments,priorMoney+1);eq(#coins,priorCoins+1)
+eq(claim(41,'daily_duty').error,'pending');eq(#payments,priorMoney+1);eq(#coins,priorCoins+1)
+-- Switching characters after the money provider yields cannot send coins to the replacement.
+player(42,'COIN_OLD');list(42)
+local switchedCoin=row('COIN_OLD','daily_house');switchedCoin.progress=switchedCoin.target
+hooks.afterGrant=function() player(42,'COIN_NEW') end
+priorCoins=#coins
+eq(claim(42,'daily_house').error,'pending');hooks.afterGrant=nil
+eq(switchedCoin.status,'pending');eq(#coins,priorCoins)
+-- Concurrent requests share the reservation for both components.
+player(43,'COIN_RACE');list(43)
+local raced=row('COIN_RACE','daily_house');raced.progress=raced.target
+hooks.reserve=function() coroutine.yield('coin-db') end
+local coinFirst,coinSecond
+local ca=coroutine.create(function() coinFirst=claim(43,'daily_house') end)
+eq(resume(ca),'coin-db')
+local cb=coroutine.create(function() coinSecond=claim(43,'daily_house') end)
+eq(resume(cb),25)
+priorMoney,priorCoins=#payments,#coins
+hooks.reserve=nil;resume(ca);resume(cb)
+eq(coinFirst.ok,true);eq(coinSecond.error,'claimed');eq(#payments,priorMoney+1);eq(#coins,priorCoins+1)
+-- Expired daily coin rewards retry after inventory space is freed and keep the saved item.
+for index,quest in ipairs({'daily_house','daily_duty'}) do
+    local sourceId,cid=43+index,'AUTO_COIN_'..index
+    player(sourceId,cid);open(cid,now-86400)
+    local r=row(cid,quest,-86400);r.progress=r.target;allowAuto(r)
+    priorMoney,priorCoins=#payments,#coins
+    hooks.full=true;list(sourceId);hooks.full=nil
+    eq(r.status,'active');eq(#payments,priorMoney);eq(#coins,priorCoins)
+    advance(31);list(sourceId)
+    eq(r.status,'claimed');eq(#payments,priorMoney+1);eq(#coins,priorCoins+1)
+    eq(coins[#coins].name,index==1 and 'black_coin' or 'white_coin');eq(coins[#coins].amount,1)
+    advance(31);list(sourceId);eq(#payments,priorMoney+1);eq(#coins,priorCoins+1)
+end
+-- A coin capacity check crossing the deadline cannot pay an expired manual claim.
+player(46,'COIN_EXPIRED');list(46)
+local expiring=row('COIN_EXPIRED','daily_house');expiring.progress=expiring.target
+hooks.capacity=function() advance(expiring.ends_at-now) end
+priorMoney,priorCoins=#payments,#coins
+eq(claim(46,'daily_house').error,'claim_unavailable');hooks.capacity=nil
+eq(expiring.status,'active');eq(#payments,priorMoney);eq(#coins,priorCoins)
 -- A shortage still exposes preferences instead of locking the user out of setup.
 local oldState=DQStore.boardState
 DQStore.ensureBoards=function() return false,'no_candidates' end
