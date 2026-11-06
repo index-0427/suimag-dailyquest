@@ -45,7 +45,7 @@
     $('section-title').textContent = board.needsSetup ? 'あなたに合った挑戦を。' : daily ? '今日のチャレンジ' : '今週のチャレンジ';
     $('completion').textContent = `${completed} / ${quests.length} COMPLETE`;
     $('board-note').textContent = board.needsSetup ? '抽選設定から、犯罪・職業条件の除外を選んでスタートしましょう。' : board.drawError ? '抽選候補が不足しています。抽選設定や連携元の状態を確認してください。' : `リロール残り ${(board.rerolls || {})[period] || 0}回 · 未達成のクエストを1件交換できます。`;
-    const cards = $('quest-cards'); cards.replaceChildren();
+    const cards = $('quest-cards'); cards.replaceChildren(); cards.dataset.count = String(quests.length);
     quests.forEach((q, index) => {
       const done = q.value >= q.target, claimable = done && q.status === 'active';
       const state = q.status === 'claimed' ? '受取済み' : q.status === 'pending' ? '確認待ち' : claimable ? '達成！' : q.available === false ? '連携元が未起動' : '進行中';
