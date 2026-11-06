@@ -205,7 +205,7 @@ local function render(data, selected)
         rootOptions[#rootOptions+1]={title='抽選できる候補が不足しています',icon='circle-info',readOnly=true,
             description='除外設定や連携元の状態を確認してください。既存のクエストは変更していません。'}
     end
-    rootOptions[#rootOptions+1]={title='抽選する属性を設定',icon='sliders',
+    rootOptions[#rootOptions+1]={title='クエスト抽選設定',icon='sliders',
         description='変更は次回更新・リロールから適用します。',onSelect=function() configure(data) end}
     rootOptions[#rootOptions + 1] = { title = '進捗を更新', icon = 'rotate', onSelect = function() open() end }
     contexts[#contexts + 1] = { id = root, title = 'デイリー / ウィークリークエスト', options = rootOptions }
