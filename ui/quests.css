@@ -111,3 +111,34 @@ footer span:last-child { white-space: nowrap; }
 @media (max-height: 800px) { :root { --board-height: calc(100vh - 112px); } }
 @keyframes appear { from { opacity: 0; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { #quest-app { animation: none; } button { transition: none; } }
+
+.preferences-intro { color: #bdcbc2; line-height: 1.7; margin: 12px 0 24px; }
+#preferences-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+#preferences-fields legend { padding: 0; margin-bottom: 14px; font-size: 16px; font-weight: 600; }
+.preference-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.preference-option { display: flex; align-items: flex-start; gap: 14px; padding: 22px; background: #1c2821; border: 1px solid #61786a; border-radius: 12px; cursor: pointer; }
+.preference-option:hover { background: #2a3d30; border-color: var(--mint); }
+.preference-option:focus-within { outline: 2px solid var(--mint); outline-offset: 3px; }
+.preference-option.is-excluded { background: #283f30; border-color: var(--mint); }
+.preference-option input { accent-color: var(--mint); width: 24px; height: 24px; margin: 3px 0 0; flex-shrink: 0; cursor: pointer; }
+.preference-copy { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.preference-copy strong { font-size: 21px; line-height: 1.5; }
+.preference-copy > span { font-size: 16px; line-height: 1.7; color: #bdcbc2; }
+.preference-copy .choice-state { color: #e0eee5; font-weight: 600; }
+.is-excluded .choice-state { color: var(--mint); }
+#preferences-fields:disabled .preference-option { opacity: .55; cursor: wait; }
+#preferences-fields:disabled input { cursor: wait; }
+.preferences-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 24px; margin-top: 24px; }
+.preferences-summary > span { font-size: 15px; color: var(--muted); }
+.preferences-summary strong { font-size: 18px; line-height: 1.6; color: var(--mint); }
+.preferences-help { color: var(--muted); font-size: 15px; line-height: 1.7; margin: 10px 0 22px; }
+.preferences-timing { padding: 18px 20px; background: #101a14; border-left: 3px solid #8fbf9d; border-radius: 0 8px 8px 0; }
+.preferences-timing strong { font-size: 16px; }
+.preferences-timing p { font-size: 16px; line-height: 1.7; color: #bdcbc2; margin: 8px 0 0; }
+.preferences-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+@media (max-width: 900px) { .preference-options { grid-template-columns: 1fr; } }
+@media (max-width: 700px) {
+  .preference-option { padding: 16px; }
+  .preference-copy strong { font-size: 19px; }
+  .preferences-actions > button { width: 100%; }
+}

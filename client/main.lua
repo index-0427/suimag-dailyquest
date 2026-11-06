@@ -83,31 +83,26 @@ local function receiveBonus(bonus)
     else notify(result) end
     open('daily')
 end
-local function configure(data)
+local function configure(prefs)
     if busy then return end
-    local operation,epoch={kind='preferences'},generation
-    busy=operation
-    local prefs=data.preferences or {crime=true,employment=false}
-    guiHide()
-    local input=lib.inputDialog(data.needsSetup and '初回の抽選設定' or '抽選するクエストの属性',{
-        {type='checkbox',label='犯罪を除外する',checked=prefs.crime},
-        {type='checkbox',label='職業・所属必須を除外する',checked=prefs.employment},
-    })
-    if epoch~=generation then return end
-    if not input then
-        if busy==operation then busy=false end
-        open()
+    if type(prefs)~='table' or type(prefs.crime)~='boolean' or type(prefs.employment)~='boolean' then
+        SendNUIMessage({action=prefix..'preferencesResult',ok=false,message=errors.invalid_request})
         return
     end
-    local result=request('preferences',{crime=input[1]==true,employment=input[2]==true})
+    local operation,needsSetup={},guiData.needsSetup
+    busy=operation
+    local result=request('preferences',{crime=prefs.crime,employment=prefs.employment})
     if busy==operation then busy=false end
     if result.error=='cancelled' then return end
+    SendNUIMessage({action=prefix..'preferencesResult',ok=result.ok==true,
+        message=not result.ok and (errors[result.error] or errors.unavailable) or nil,
+        preferences=result.ok and {crime=prefs.crime,employment=prefs.employment} or nil})
     if result.ok then
-        lib.notify({title='抽選設定',type='success',description=data.needsSetup
-            and '設定を保存しました。日次3件・週次2件を抽選します。'
+        lib.notify({title='抽選設定',type='success',description=needsSetup
+            and '設定を保存しました。クエストを抽選します。'
             or '設定を保存しました。次回更新・リロールから適用します。提示済みの内容は変わりません。'})
-    else notify(result) end
-    open()
+        open()
+    end
 end
 
 local function reroll(quest)
@@ -169,7 +164,6 @@ local function close()
     countdown,overlayStamp=nil,nil
     if overlayVisible then SendNUIMessage({action=prefix..'countdown',visible=false}) end
     overlayVisible=false
-    if type(operation)=='table' and operation.kind=='preferences' then lib.closeInputDialog() end
     if type(operation)=='table' and operation.kind=='reroll' then lib.closeAlertDialog() end
 end
 
@@ -177,9 +171,14 @@ RegisterNUICallback('questAction',function(data,cb)
     cb({ok=true})
     if type(data)~='table' or not guiVisible then return end
     if data.action=='close' then close(); return end
-    if busy or not guiData then return end
+    if busy or not guiData then
+        if data.action=='preferences' then
+            SendNUIMessage({action=prefix..'preferencesResult',ok=false,message=errors.busy})
+        end
+        return
+    end
     if data.action=='refresh' then open(data.period=='weekly' and 'weekly' or 'daily')
-    elseif data.action=='preferences' then configure(guiData)
+    elseif data.action=='preferences' then configure(data.preferences)
     elseif data.action=='bonus' then
         if guiData.dailyBonus and guiData.dailyBonus.canClaim then receiveBonus(guiData.dailyBonus) end
     elseif data.action=='claim' or data.action=='reroll' then

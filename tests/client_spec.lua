@@ -22,7 +22,7 @@ RegisterKeyMapping=function(_,_,_,key) registeredKey=key end
 RegisterNetEvent=function(name,fn) handlers[name]=fn end
 AddEventHandler=function(name,fn) handlers[name]=fn end
 exports=setmetatable({},{__call=function(_,name,fn) exposed[name]=fn end})
-local choice, input, dialogDelayed, inputClosed, alertClosed='cancel', {false,true}, false, 0, 0
+local choice, dialogDelayed, alertClosed='cancel', false, 0
 local responseMode='ok'
 lib={callback={await=function(name,_,...)
     requests[#requests+1]={name=name,args={...}}
@@ -31,19 +31,15 @@ lib={callback={await=function(name,_,...)
     if responseMode=='nil' then return nil end
     if responseMode=='not_ready' then return {ok=false,error='not_ready'} end
     if responseMode=='pending' and name=='suimag-dailyquest:claim' then return {ok=false,error='pending',claimId=42} end
+    if name=='suimag-dailyquest:preferences' then view.preferences=({...})[1];view.needsSetup=false end
     return name=='suimag-dailyquest:list' and view or {ok=true}
 end},notify=function(data) notices[#notices+1]=data end,
-inputDialog=function()
-    eq(focused,false,'release focus for ox_lib')
-    if dialogDelayed then coroutine.yield('dialog') end
-    return input
-end,
 alertDialog=function()
     eq(focused,false,'release focus for confirmation')
     if dialogDelayed then coroutine.yield('dialog') end
     return choice
 end,
-closeInputDialog=function() inputClosed=inputClosed+1 end,closeAlertDialog=function() alertClosed=alertClosed+1 end}
+closeAlertDialog=function() alertClosed=alertClosed+1 end}
 dofile('client/main.lua')
 local function run(fn)
     local co=type(fn)=='thread' and fn or coroutine.create(fn)
@@ -83,19 +79,39 @@ before=#requests;action('reroll',{id='progress'})
 eq(#requests,before+1,'cancel only refreshes the board')
 choice='confirm';before=#requests;action('reroll',{id='progress'})
 eq(requests[before+1].name,'suimag-dailyquest:reroll');eq(focused,true)
-before=#requests;action('preferences')
+before=#requests
+local focusBefore=focusCalls
+action('preferences',{preferences={crime=false,employment=true}})
 eq(requests[before+1].args[1].crime,false);eq(requests[before+1].args[1].employment,true)
-eq(focused,true,'restore board focus after preference dialog')
-view.needsSetup=true;input=nil;run(commands.dailyquest)
-before=#requests;action('preferences');eq(#requests,before+1,'cancel setup without saving preferences')
-view.needsSetup=false;input={false,true}
+eq(focusCalls,focusBefore,'saving native settings keeps GUI focus')
+for _,prefs in ipairs({false,{crime='yes',employment=false},{crime=true}}) do
+    before=#requests;action('preferences',{preferences=prefs})
+    eq(#requests,before,'invalid preference payload never reaches server')
+    eq(messages[#messages].action,'suimag-dailyquest:preferencesResult');eq(messages[#messages].ok,false)
+end
+responseMode='not_ready';before=#requests
+action('preferences',{preferences={crime=true,employment=false}})
+eq(#requests,before+1,'failed save does not refresh away the draft')
+eq(messages[#messages].ok,false);eq(focused,true)
+responseMode='ok'
+view.needsSetup=true;run(commands.dailyquest)
+before=#requests;action('close');eq(#requests,before,'cancel setup without saving preferences')
+view.needsSetup=false;run(commands.dailyquest)
+-- A save already sent may complete, but its late response must not reopen the UI.
+delayed=true
+local save=coroutine.create(function() callbacks.questAction({action='preferences',preferences={crime=true,employment=false}},function() end) end)
+local success,value=coroutine.resume(save);assert(success,value);eq(value,'await')
+action('close');before=#messages;delayed=false
+success,value=coroutine.resume(save);assert(success,value)
+eq(#messages,before,'late save cannot notify or reopen for an unloaded view')
+run(commands.dailyquest)
 -- Error paths release the operation lock and allow retry.
 for _,mode in ipairs({'throw','nil','not_ready'}) do
     responseMode=mode;run(commands.dailyquest);eq(notices[#notices].type,'error')
 end
 responseMode='ok';run(commands.dailyquest);eq(guiMessage().visible,true)
 -- A dialog for an unloaded character cannot save or reopen its board.
-for _,kind in ipairs({'preferences','reroll'}) do
+for _,kind in ipairs({'reroll'}) do
     dialogDelayed=true;before=#requests
     local dialog=coroutine.create(function() callbacks.questAction({action=kind,id='progress'},function() end) end)
     local success,value=coroutine.resume(dialog);assert(success,value);eq(value,'dialog')
@@ -105,12 +121,15 @@ for _,kind in ipairs({'preferences','reroll'}) do
     eq(guiMessage().visible,false)
     run(commands.dailyquest)
 end
-eq(inputClosed,1);eq(alertClosed,1)
+eq(alertClosed,1)
 -- Close while a server reply is pending: no reopening or lock corruption.
 clock=clock+2000;delayed=true
 local old=coroutine.create(function() callbacks.questAction({action='refresh'},function() end) end)
 local ok,result=coroutine.resume(old);assert(ok,result);eq(result,'await')
 before=#requests;action('claim',{id='ready'});eq(#requests,before,'suppress duplicate actions')
+action('preferences',{preferences={crime=true,employment=false}})
+eq(#requests,before,'busy preference save never submits')
+eq(messages[#messages].action,'suimag-dailyquest:preferencesResult');eq(messages[#messages].ok,false,'busy save must release browser saving state')
 action('close');eq(focused,false);eq(guiMessage().visible,false)
 -- Start a new open while the old reply is still in flight.
 clock=clock+2000

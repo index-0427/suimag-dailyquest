@@ -14,6 +14,7 @@ const server = http.createServer((req, res) => {
   res.end(fs.readFileSync(filename));
 });
 const board = {
+  preferences:{crime:true,employment:false},
   rerolls:{daily:1,weekly:1},dailyReset:'tomorrow',weeklyReset:'monday',
   quests:[
     {id:'visit',period:'daily',title:'今日の街歩き',value:1,target:1,reward:'銀行 $150000 + 黒コイン × 1'},
@@ -54,6 +55,39 @@ const board = {
     assert.equal(await page.locator('.rail-caption').textContent(),'FLECITY');
     assert.equal(await page.locator('#preferences').textContent(),'⚙ クエスト抽選設定');
     assert.equal(await page.locator('.reward').first().textContent(),'銀行 $150000 + 黒コイン × 1');
+    // Settings are an actual view. Edits stay local until saved and survive refresh/errors.
+    const callsBefore = await page.evaluate(() => nuiCalls.length);
+    await page.locator('#preferences').click();
+    await page.locator('#preferences-view').waitFor({state:'visible'});
+    assert.equal(await page.locator('#board-view').isVisible(),false);
+    assert.equal(await page.locator('#exclude-crime').isChecked(),true);
+    assert.equal(await page.locator('#exclude-employment').isChecked(),false);
+    await page.locator('#exclude-crime').uncheck();
+    await page.locator('#exclude-employment').check();
+    assert.equal(await page.locator('#preferences-summary').textContent(),'一般 ／ 犯罪');
+    await show(board,null);
+    assert.equal(await page.locator('#exclude-crime').isChecked(),false,'auto refresh preserves draft');
+    assert.equal(await page.evaluate(() => nuiCalls.length),callsBefore,'editing sends no server request');
+    await page.locator('#preferences-cancel').click();
+    await page.locator('#preferences').click();
+    assert.equal(await page.locator('#exclude-crime').isChecked(),true,'cancel discards unsaved edits');
+    await page.locator('#exclude-crime').uncheck();
+    await page.locator('#exclude-employment').check();
+    await page.locator('#preferences-save').click();
+    assert.deepEqual(await page.evaluate(()=>nuiCalls.at(-1).data),{action:'preferences',period:'daily',preferences:{crime:false,employment:true}});
+    assert.equal(await page.locator('#preferences-save').isDisabled(),true);
+    assert.equal(await page.locator('#exclude-crime').isDisabled(),true);
+    await page.evaluate(() => window.postMessage({action:'suimag-dailyquest:preferencesResult',ok:false,message:'設定を保存できませんでした。'},'*'));
+    await page.getByText('設定を保存できませんでした。',{exact:true}).waitFor();
+    assert.equal(await page.locator('#preferences-view').isVisible(),true);
+    assert.equal(await page.locator('#exclude-crime').isChecked(),false);
+    await page.locator('#preferences-save').click();
+    await page.evaluate(() => window.postMessage({action:'suimag-dailyquest:preferencesResult',ok:true,preferences:{crime:false,employment:true}},'*'));
+    await page.locator('#board-view').waitFor({state:'visible'});
+    await page.locator('#preferences').click();
+    assert.equal(await page.locator('#exclude-employment').isChecked(),true,'saved settings remain current even before list refresh');
+    await page.keyboard.press('Escape');
+    await page.locator('#board-view').waitFor({state:'visible'});
     await page.getByRole('button',{name:'報酬を受け取る ↗'}).click();
     assert.deepEqual(await page.evaluate(()=>nuiCalls.at(-1).data),{action:'claim',period:'daily',id:'visit'});
     board.quests[0].status='claimed';await show();
@@ -76,9 +110,15 @@ const board = {
     assert.equal(await page.locator('.quest-card img, .quest-card script').count(),0);
     assert.equal(await page.getByText('連携元が未起動',{exact:true}).count(),2);
     // Lua can serialize an empty table as an object.
+    await page.locator('#close').click();
+    await page.locator('#quest-app').waitFor({state:'hidden'});
     await show({needsSetup:true,quests:{}});
-    await page.locator('.empty-state').waitFor();
-    assert.match(await page.locator('#section-title').textContent(),/あなたに合った/);
+    await page.locator('#preferences-view').waitFor({state:'visible'});
+    assert.equal(await page.locator('#exclude-crime').isChecked(),true);
+    assert.match(await page.locator('#preferences-save').textContent(),/この設定でクエストを始める/);
+    await page.locator('#preferences-cancel').click();
+    await page.locator('#quest-app').waitFor({state:'hidden'});
+    await show();
     await page.evaluate(() => { window.fetch = async () => { throw new Error('offline'); }; });
     await page.locator('#refresh').click();
     await page.getByText('通信に失敗しました。少し待って再度お試しください。').waitFor();

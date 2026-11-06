@@ -21,10 +21,34 @@
     <nav class="rail"><span class="brand">S<span>Q</span></span><span class="rail-mark" aria-hidden="true">◈</span><span class="rail-caption">FLECITY</span></nav>
     <section class="workspace" tabindex="-1">
       <header><h1>クエストボード<span>QUEST BOARD</span></h1><div class="header-actions"><button id="preferences" class="secondary-button">⚙ クエスト抽選設定</button><button id="close" class="icon-button" aria-label="閉じる" title="閉じる（Esc）">✕</button></div></header>
-      <div class="toolbar"><div class="tabs" aria-label="クエストの期間"><button data-period="daily">デイリー <small>DAILY</small></button><button data-period="weekly">ウィークリー <small>WEEKLY</small></button></div><button id="refresh" class="secondary-button">↻ 進捗を更新</button></div>
-      <div class="section-heading"><div><p class="eyebrow" id="period-label"></p><h2 id="section-title"></h2></div><p id="completion"></p></div>
-      <p id="board-note" class="board-note"></p><div id="quest-cards"></div><div id="bonus"></div>
-      <footer><span id="reset-copy"></span><span>ESC で閉じる</span></footer>
+      <div id="board-view">
+        <div class="toolbar"><div class="tabs" aria-label="クエストの期間"><button data-period="daily">デイリー <small>DAILY</small></button><button data-period="weekly">ウィークリー <small>WEEKLY</small></button></div><button id="refresh" class="secondary-button">↻ 進捗を更新</button></div>
+        <div class="section-heading"><div><p class="eyebrow" id="period-label"></p><h2 id="section-title"></h2></div><p id="completion"></p></div>
+        <p id="board-note" class="board-note"></p><div id="quest-cards"></div><div id="bonus"></div>
+        <footer><span id="reset-copy"></span><span>ESC で閉じる</span></footer>
+      </div>
+      <form id="preferences-view" hidden aria-labelledby="preferences-title">
+        <p class="eyebrow" id="preferences-kicker">QUEST PREFERENCES</p>
+        <h2 id="preferences-title">クエスト抽選設定</h2>
+        <p class="preferences-intro">遊び方に合わせて、抽選から外したいクエストを選んでください。</p>
+        <fieldset id="preferences-fields">
+          <legend>チェックを入れた種類を、抽選から除外します</legend>
+          <div class="preference-options">
+            <label class="preference-option" id="crime-option">
+              <input id="exclude-crime" type="checkbox" aria-describedby="crime-description">
+              <span class="preference-copy"><strong>犯罪クエストを除外する</strong><span id="crime-description">家強盗・ブースティングなど、犯罪に関わるクエストが対象です。</span><span class="choice-state" id="crime-state"></span></span>
+            </label>
+            <label class="preference-option" id="employment-option">
+              <input id="exclude-employment" type="checkbox" aria-describedby="employment-description">
+              <span class="preference-copy"><strong>職業・所属必須クエストを除外する</strong><span id="employment-description">特定の職業への所属が必要な勤務クエストなどが対象です。無所属でも参加できる仕事は含みません。</span><span class="choice-state" id="employment-state"></span></span>
+            </label>
+          </div>
+        </fieldset>
+        <div class="preferences-summary" role="status"><span>抽選に含める種類</span><strong id="preferences-summary"></strong></div>
+        <p class="preferences-help">一般クエストは常に候補に含まれます。職業・所属必須クエストを含めても、所属条件などを満たさないものは抽選されません。</p>
+        <div class="preferences-timing"><strong>設定が反映されるタイミング</strong><p id="preferences-timing"></p></div>
+        <div class="preferences-actions"><button id="preferences-cancel" class="secondary-button" type="button">保存せず戻る</button><button id="preferences-save" class="action-button" type="submit">設定を保存</button></div>
+      </form>
       <p id="gui-error" role="status"></p>
     </section>
   </main>

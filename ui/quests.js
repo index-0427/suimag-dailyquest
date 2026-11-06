@@ -3,14 +3,20 @@
   const $ = id => document.getElementById(id);
   const app = $('quest-app');
   let board, period = 'daily', pending = false, busy = false;
+  let editingPreferences = false, savingPreferences = false, viewEpoch = 0;
   function updateBusy() {
-    app.setAttribute('aria-busy', String(busy || pending));
-    app.querySelectorAll('button:not(#close):not([data-period])').forEach(el => { el.disabled = busy || pending; });
+    const locked = busy || pending || savingPreferences;
+    app.setAttribute('aria-busy', String(locked));
+    app.querySelectorAll('button:not(#close):not([data-period])').forEach(el => { el.disabled = locked; });
+    $('preferences-fields').disabled = locked;
+    $('preferences-save').textContent = savingPreferences ? '保存中…' : board && board.needsSetup ? 'この設定でクエストを始める' : '設定を保存';
   }
   async function action(action, extra = {}) {
     const closing = action === 'close';
+    const epoch = viewEpoch;
     if (!closing && (pending || busy)) return;
     if (!closing) pending = true;
+    if (action === 'preferences') savingPreferences = true;
     updateBusy();
     $('gui-error').textContent = '';
     const controller = new AbortController();
@@ -22,8 +28,15 @@
         body: JSON.stringify({ action, period, ...extra }), signal: controller.signal
       });
       if (!response.ok) throw new Error('request');
-    } catch (_) { $('gui-error').textContent = '通信に失敗しました。少し待って再度お試しください。'; }
-    finally { clearTimeout(timeout); if (!closing) pending = false; updateBusy(); }
+    } catch (_) {
+      if (epoch === viewEpoch) {
+        savingPreferences = false;
+        $('gui-error').textContent = '通信に失敗しました。少し待って再度お試しください。';
+      }
+    } finally {
+      clearTimeout(timeout);
+      if (epoch === viewEpoch) { if (!closing) pending = false; updateBusy(); }
+    }
   }
   function node(tag, className, text) {
     const el = document.createElement(tag); el.className = className || '';
@@ -32,6 +45,47 @@
   }
   function button(text, kind, extra, className = 'action-button') {
     const el = node('button', className, text); el.onclick = () => action(kind, extra); return el;
+  }
+  function updatePreferenceSummary() {
+    const included = ['一般'];
+    for (const [key, title] of [['crime', '犯罪'], ['employment', '職業・所属必須']]) {
+      const excluded = $('exclude-' + key).checked;
+      $(key + '-option').classList.toggle('is-excluded', excluded);
+      $(key + '-state').textContent = excluded ? '✓ 抽選から除外する' : '抽選候補に含める';
+      if (!excluded) included.push(title);
+    }
+    $('preferences-summary').textContent = included.join(' ／ ');
+  }
+  function showPreferences() {
+    editingPreferences = true;
+    const prefs = board.preferences || { crime: true, employment: false };
+    $('exclude-crime').checked = prefs.crime === true;
+    $('exclude-employment').checked = prefs.employment === true;
+    $('board-view').hidden = true;
+    $('preferences-view').hidden = false;
+    $('preferences').hidden = true;
+    $('preferences-kicker').textContent = board.needsSetup ? 'はじめに · あなたに合ったクエストを' : 'QUEST PREFERENCES';
+    $('preferences-timing').textContent = board.needsSetup
+      ? '保存すると、最初のデイリー・ウィークリークエストを抽選します。'
+      : '次回の更新・リロールから適用します。現在のクエスト・進捗・リロール回数は変わりません。';
+    $('preferences-cancel').textContent = board.needsSetup ? 'あとで設定する' : '保存せず戻る';
+    $('gui-error').textContent = '';
+    updatePreferenceSummary();
+    updateBusy();
+    $('exclude-crime').focus();
+  }
+  function showBoard() {
+    editingPreferences = false;
+    $('preferences-view').hidden = true;
+    $('board-view').hidden = false;
+    $('preferences').hidden = false;
+    $('gui-error').textContent = '';
+    $('preferences').focus();
+  }
+  function cancelPreferences() {
+    if (busy || pending || savingPreferences) return;
+    if (board.needsSetup) action('close');
+    else showBoard();
   }
   function render() {
     if (!board) return;
@@ -79,24 +133,45 @@
   window.addEventListener('message', ({ data }) => {
     if (!data) return;
     if (data.action === 'suimag-dailyquest:busy') { busy = data.busy === true; updateBusy(); return; }
+    if (data.action === 'suimag-dailyquest:preferencesResult') {
+      if (app.hidden) return;
+      savingPreferences = false;
+      if (data.ok) { board.preferences = data.preferences; board.needsSetup = false; showBoard(); }
+      else $('gui-error').textContent = data.message || '設定を保存できませんでした。再度お試しください。';
+      updateBusy();
+      return;
+    }
     if (data.action !== 'suimag-dailyquest:gui') return;
     const wasHidden = app.hidden;
     app.hidden = data.visible !== true;
     busy = false;
+    if (app.hidden) { viewEpoch++; pending = savingPreferences = false; editingPreferences = false; }
     if (!app.hidden && data.data) {
       board = data.data; if (data.selected === 'weekly' || data.selected === 'daily') period = data.selected;
-      render(); if (wasHidden) { $('gui-error').textContent = ''; $('close').focus(); }
+      render();
+      if (wasHidden) {
+        showBoard();
+        if (board.needsSetup) showPreferences();
+        else $('close').focus();
+      }
     }
   });
   document.querySelectorAll('[data-period]').forEach(el => el.onclick = () => { period = el.dataset.period; render(); });
   $('close').onclick = () => action('close');
   $('refresh').onclick = () => action('refresh');
-  $('preferences').onclick = () => action('preferences');
+  $('preferences').onclick = showPreferences;
+  $('preferences-cancel').onclick = cancelPreferences;
+  $('exclude-crime').onchange = $('exclude-employment').onchange = updatePreferenceSummary;
+  $('preferences-view').onsubmit = event => {
+    event.preventDefault();
+    if (savingPreferences) return;
+    action('preferences', { preferences: { crime: $('exclude-crime').checked, employment: $('exclude-employment').checked } });
+  };
   window.addEventListener('keydown', e => {
     if (app.hidden) return;
-    if (e.key === 'Escape') { e.preventDefault(); action('close'); }
+    if (e.key === 'Escape') { e.preventDefault(); if (editingPreferences) cancelPreferences(); else action('close'); }
     if (e.key === 'Tab') {
-      const buttons = Array.from(app.querySelectorAll('button:not(:disabled)'));
+      const buttons = Array.from(app.querySelectorAll('button:not(:disabled), input:not(:disabled)')).filter(el => el.getClientRects().length > 0);
       const first = buttons[0], last = buttons[buttons.length - 1];
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
