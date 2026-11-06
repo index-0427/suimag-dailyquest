@@ -63,7 +63,15 @@ before=#requests
 for _,kind in ipairs({'unknown','claim','reroll'}) do action(kind,{id='forged',periodStart=999}) end
 action('claim',{id='pending'});action('claim',{id='progress'})
 eq(#requests,before,'unknown and ineligible actions never reach server')
+local messageStart=#messages
 action('claim',{id='ready',periodStart=999,reward=999999})
+local operations={}
+for i=messageStart+1,#messages do
+    if messages[i].action=='suimag-dailyquest:busy' and messages[i].busy then
+        operations[#operations+1]=messages[i].operation
+    end
+end
+eq(table.concat(operations,','),'claim,list','GUI distinguishes reward processing from the following list refresh')
 eq(requests[before+1].name,'suimag-dailyquest:claim')
 eq(requests[before+1].args[2],123,'use the cached server period, ignore browser amounts and period')
 eq(guiMessage().selected,'daily')

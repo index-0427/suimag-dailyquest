@@ -42,8 +42,16 @@ const board = {
         return {ok:true};
       };
     });
+    const send = async data => page.evaluate(data => new Promise(resolve => {
+      const delivered = event => {
+        if (event.data.action !== data.action) return;
+        window.removeEventListener('message', delivered); resolve();
+      };
+      window.addEventListener('message', delivered);
+      window.postMessage(data,'*');
+    }), data);
     const show = async (data=board,selected='daily') => {
-      await page.evaluate(({data,selected}) => window.postMessage({action:'suimag-dailyquest:gui',visible:true,data,selected},'*'),{data,selected});
+      await send({action:'suimag-dailyquest:gui',visible:true,data,selected});
       await page.locator('#quest-app').waitFor({state:'visible'});
     };
     await page.goto(`http://127.0.0.1:${server.address().port}/countdown.html`);
@@ -56,7 +64,7 @@ const board = {
     assert.equal(await page.locator('#preferences').textContent(),'⚙ クエスト抽選設定');
     assert.equal(await page.locator('.reward').first().textContent(),'銀行 $150000 + 黒コイン × 1');
     // Settings are an actual view. Edits stay local until saved and survive refresh/errors.
-    const callsBefore = await page.evaluate(() => nuiCalls.length);
+    const preferenceCallsBefore = await page.evaluate(() => nuiCalls.length);
     await page.locator('#preferences').click();
     await page.locator('#preferences-view').waitFor({state:'visible'});
     assert.equal(await page.locator('#board-view').isVisible(),false);
@@ -67,7 +75,7 @@ const board = {
     assert.equal(await page.locator('#preferences-summary').textContent(),'一般 ／ 犯罪');
     await show(board,null);
     assert.equal(await page.locator('#exclude-crime').isChecked(),false,'auto refresh preserves draft');
-    assert.equal(await page.evaluate(() => nuiCalls.length),callsBefore,'editing sends no server request');
+    assert.equal(await page.evaluate(() => nuiCalls.length),preferenceCallsBefore,'editing sends no server request');
     await page.locator('#preferences-cancel').click();
     await page.locator('#preferences').click();
     assert.equal(await page.locator('#exclude-crime').isChecked(),true,'cancel discards unsaved edits');
@@ -97,7 +105,8 @@ const board = {
     assert.equal(await page.locator('#bonus').isVisible(), false);
     assert.match(await page.locator('#reset-copy').textContent(), /期限内/);
     assert.equal(await page.locator('.reward').first().textContent(),'銀行 $500000 + 白コイン × 3');
-    assert.equal(await page.getByText('確認待ち',{exact:true}).count(), 2);
+    assert.equal(await page.getByText('確認待ち',{exact:true}).count(), 1);
+    assert.match(await page.locator('.pending-help').textContent(), /管理者へお問い合わせ/);
     await show(board,null);assert.equal(await page.locator('.quest-card').count(),2,'auto refresh preserves the tab');
     await page.evaluate(() => window.postMessage({action:'suimag-dailyquest:busy',busy:true},'*'));
     await page.locator('#refresh:disabled').waitFor();
@@ -123,15 +132,100 @@ const board = {
     await page.locator('#refresh').click();
     await page.getByText('通信に失敗しました。少し待って再度お試しください。').waitFor();
     assert.equal(await page.locator('#refresh').isEnabled(),true);
+    assert.equal(await page.locator('#refresh').evaluate(el=>el===document.activeElement),true,'failed request retains keyboard focus');
+
+    // Keep a meaningful focus target when a refreshed card loses its claim action.
+    board.quests[0].status='active';await show();
+    await page.locator('.quest-card').first().getByRole('button').focus();
     await show();
-    for (const size of [{width:1280,height:720},{width:390,height:844}]) {
+    await page.waitForFunction(()=>document.activeElement.dataset.focusKey==='quest:visit:claim');
+    board.quests[0].status='claimed';await show();
+    await page.waitForFunction(()=>document.activeElement.dataset.focusKey==='quest:visit');
+    assert.equal(await page.evaluate(()=>document.activeElement.tagName),'H3');
+    const allClaimed={...board,quests:board.quests.map(q=>({...q,status:'claimed',value:q.target,canReroll:false}))};
+    await show(allClaimed);
+    await page.locator('.quest-card h3').last().focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await page.locator('#preferences').evaluate(el=>el===document.activeElement),true,'Tab wraps from a completed card heading');
+
+    // NUI transport acknowledgement and Lua/server work have independent lifetimes.
+    await page.evaluate(() => {
+      window.fetch = (url,options) => {
+        const data=JSON.parse(options.body);nuiCalls.push({url,data});
+        return new Promise(resolve=>{window.finishRequest=()=>resolve({ok:true});});
+      };
+    });
+    board.quests[0].status='active';await show();
+    await page.locator('.quest-card').first().getByRole('button').click();
+    await page.getByRole('button',{name:'受取中…',exact:true}).waitFor();
+    assert.match(await page.locator('#gui-status').textContent(),/クエスト報酬を受け取っています/);
+    await send({action:'suimag-dailyquest:busy',busy:true,operation:'claim'});
+    await page.evaluate(()=>finishRequest());
+    assert.equal(await page.locator('#refresh').isEnabled(),false,'transport ACK does not end server work');
+    const callsBefore=await page.evaluate(()=>nuiCalls.length);
+    await page.evaluate(()=>document.querySelector('.quest-card button').click());
+    assert.equal(await page.evaluate(()=>nuiCalls.length),callsBefore,'loading blocks repeat claims');
+    await page.locator('[data-period="weekly"]').click();
+    await send({action:'suimag-dailyquest:busy',busy:false});
+    await show(board,null);
+    assert.equal(await page.locator('[data-period="weekly"]').evaluate(el=>el===document.activeElement),true,'completion does not steal focus after tab change');
+    assert.equal(await page.locator('#gui-status').textContent(),'');
+    await send({action:'suimag-dailyquest:busy',busy:true,operation:'list'});
+    await page.getByRole('button',{name:'更新中…',exact:true}).waitFor();
+    assert.match(await page.locator('#gui-status').textContent(),/進捗を更新/);
+    await send({action:'suimag-dailyquest:busy',busy:false});
+
+    // A completed bonus keeps focus on its own heading; pending guidance persists on reopen.
+    const bonusBoard={...board,dailyBonus:{...board.dailyBonus,completed:3,canClaim:true}};
+    await show(bonusBoard);
+    await page.locator('#bonus button').focus();
+    bonusBoard.dailyBonus={...bonusBoard.dailyBonus,canClaim:false,status:'pending'};
+    await show(bonusBoard);
+    await page.waitForFunction(()=>document.activeElement.dataset.focusKey==='bonus-heading');
+    assert.match(await page.locator('#bonus .pending-help').textContent(),/管理者へお問い合わせ/);
+
+    // Delayed transport completions from a closed screen must not affect a new operation.
+    await show();
+    await page.locator('#refresh').click();
+    await page.evaluate(()=>{window.finishOldRequest=finishRequest;window.postMessage({action:'suimag-dailyquest:gui',visible:false},'*');});
+    await page.locator('#quest-app').waitFor({state:'hidden'});
+    await show();
+    await page.locator('#refresh').click();
+    await page.evaluate(()=>finishOldRequest());
+    assert.equal(await page.locator('#refresh').isEnabled(),false);
+    await page.evaluate(()=>finishRequest());
+    await page.locator('#refresh:enabled').waitFor();
+
+    await show();
+    for (const size of [{width:1920,height:1080},{width:1280,height:720},{width:1024,height:768},{width:390,height:844},{width:375,height:667}]) {
       await page.setViewportSize(size);
       const fits = await page.evaluate(() => {
         const workspace = document.querySelector('.workspace');
         return workspace.scrollWidth <= workspace.clientWidth;
       });
       assert.equal(fits,true,`${size.width}px horizontal overflow`);
+      if (size.width===1280) {
+        const overviewVisible=await page.evaluate(()=>{
+          const viewport=document.querySelector('.workspace').getBoundingClientRect();
+          return ['#bonus','#reset-copy'].every(selector=>{
+            const r=document.querySelector(selector).getBoundingClientRect();
+            return r.top>=viewport.top && r.bottom<=viewport.bottom;
+          });
+        });
+        assert.equal(overviewVisible,true,'bonus and deadline are visible without scrolling at 720p');
+      }
     }
+    await page.evaluate(()=>window.postMessage({action:'suimag-dailyquest:gui',visible:false},'*'));
+    await page.locator('#quest-app').waitFor({state:'hidden'});
+    await show({needsSetup:true,quests:{}});
+    assert.equal(await page.locator('#exclude-crime').evaluate(el=>el===document.activeElement),true,'first-time opening focuses the first preference');
+    assert.equal(await page.locator('#completion').isVisible(),false);
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await page.locator('#close').evaluate(el=>el===document.activeElement),true);
+    await page.keyboard.press('Shift+Tab');
+    assert.equal(await page.locator('#preferences-save').evaluate(el=>el===document.activeElement),true,'focus wraps across the native settings form');
+    await page.keyboard.press('Tab');
+    assert.equal(await page.locator('#close').evaluate(el=>el===document.activeElement),true);
     // Lost startup notification: countdown is visible but the board message arrived
     // before the page loaded. A failed readiness callback must eventually replay it.
     const startup = await browser.newPage();
@@ -158,6 +252,6 @@ const board = {
     assert.equal(await startup.locator('.quest-card').count(),3);
     await startup.close();
     assert.deepEqual(errors,[]);
-    console.log('GUI browser: rendering, actions, tabs, busy/close, setup, escaping, errors, startup recovery and responsive layout passed');
+    console.log('GUI browser: rendering, actions, tabs, busy/close, setup, escaping, errors and responsive layout passed');
   } finally { if (browser) await browser.close(); server.close(); }
 })().catch(error => { console.error(error);process.exitCode=1;server.close(); });

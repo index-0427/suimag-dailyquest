@@ -20,16 +20,21 @@
   <main id="quest-app" hidden role="dialog" aria-modal="true" aria-label="クエストボード">
     <nav class="rail"><span class="brand">S<span>Q</span></span><span class="rail-mark" aria-hidden="true">◈</span><span class="rail-caption">FLECITY</span></nav>
     <section class="workspace" tabindex="-1">
-      <header><h1>クエストボード<span>QUEST BOARD</span></h1><div class="header-actions"><button id="preferences" class="secondary-button">⚙ クエスト抽選設定</button><button id="close" class="icon-button" aria-label="閉じる" title="閉じる（Esc）">✕</button></div></header>
+      <header><h1>クエストボード</h1><div class="header-actions"><button id="preferences" class="secondary-button">⚙ クエスト抽選設定</button><button id="close" class="icon-button" aria-label="閉じる" title="閉じる（Esc）">✕</button></div></header>
+      <p id="gui-status" class="status-message" role="status" aria-atomic="true"></p>
+      <p id="gui-error" role="status"></p>
       <div id="board-view">
-        <div class="toolbar"><div class="tabs" aria-label="クエストの期間"><button data-period="daily">デイリー <small>DAILY</small></button><button data-period="weekly">ウィークリー <small>WEEKLY</small></button></div><button id="refresh" class="secondary-button">↻ 進捗を更新</button></div>
-        <div class="section-heading"><div><p class="eyebrow" id="period-label"></p><h2 id="section-title"></h2></div><p id="completion"></p></div>
-        <p id="board-note" class="board-note"></p><div id="quest-cards"></div><div id="bonus"></div>
-        <footer><span id="reset-copy"></span><span>ESC で閉じる</span></footer>
+        <div class="toolbar"><div class="tabs" aria-label="クエストの期間"><button data-period="daily">デイリー</button><button data-period="weekly">ウィークリー</button></div><button id="refresh" class="secondary-button">↻ 進捗を更新</button></div>
+        <p id="reset-copy" class="reset-copy"></p>
+        <div class="section-heading"><h2 id="section-title" tabindex="-1"></h2><p id="completion"></p></div>
+        <p id="board-note" class="board-note"></p>
+        <div id="bonus" hidden></div>
+        <div id="quest-cards"></div>
+        <footer>ESC で閉じる</footer>
       </div>
       <form id="preferences-view" hidden aria-labelledby="preferences-title">
         <p class="eyebrow" id="preferences-kicker">QUEST PREFERENCES</p>
-        <h2 id="preferences-title">クエスト抽選設定</h2>
+        <h2 id="preferences-title" tabindex="-1">クエスト抽選設定</h2>
         <p class="preferences-intro">遊び方に合わせて、抽選から外したいクエストを選んでください。</p>
         <fieldset id="preferences-fields">
           <legend>チェックを入れた種類を、抽選から除外します</legend>
@@ -49,7 +54,6 @@
         <div class="preferences-timing"><strong>設定が反映されるタイミング</strong><p id="preferences-timing"></p></div>
         <div class="preferences-actions"><button id="preferences-cancel" class="secondary-button" type="button">保存せず戻る</button><button id="preferences-save" class="action-button" type="submit">設定を保存</button></div>
       </form>
-      <p id="gui-error" role="status"></p>
     </section>
   </main>
 </body>

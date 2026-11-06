@@ -48,7 +48,7 @@ local function request(action, ...)
     end
     if epoch ~= generation then return { ok = false, error = 'cancelled' } end
     if action == 'list' then lastList = GetGameTimer() end
-    if guiVisible then SendNUIMessage({action=prefix..'busy',busy=true}) end
+    if guiVisible then SendNUIMessage({action=prefix..'busy',busy=true,operation=action}) end
     local ok, result = pcall(lib.callback.await, prefix .. action, false, ...)
     if epoch ~= generation then return { ok = false, error = 'cancelled' } end
     if guiVisible then SendNUIMessage({action=prefix..'busy',busy=false}) end
