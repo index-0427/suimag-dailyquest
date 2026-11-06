@@ -20,13 +20,19 @@
   <main id="quest-app" hidden role="dialog" aria-modal="true" aria-label="クエストボード">
     <nav class="rail"><span class="brand">S<span>Q</span></span><span class="rail-mark">◈</span><span class="rail-caption">FLECITY</span></nav>
     <section class="workspace" tabindex="-1">
-      <header><div><p class="eyebrow">YOUR CITY. YOUR NEXT CHALLENGE.</p><h1>クエストボード<span>QUEST BOARD</span></h1></div><button id="close" class="icon-button" aria-label="閉じる">✕</button></header>
-      <div class="intro"><div><span class="live-dot"></span> 小さな挑戦で、街の日常をもっと楽しく。</div><button id="preferences" class="text-button">⚙ クエスト抽選設定</button></div>
-      <div class="toolbar"><div class="tabs" aria-label="クエストの期間"><button data-period="daily">デイリー <small>DAILY</small></button><button data-period="weekly">ウィークリー <small>WEEKLY</small></button></div><button id="refresh" class="text-button">↻ 進捗を更新</button></div>
-      <div class="section-heading"><div><p class="eyebrow" id="period-label"></p><h2 id="section-title"></h2></div><p id="completion"></p></div>
-      <p id="board-note" class="board-note"></p><div id="quest-cards"></div><div id="bonus"></div>
-      <footer><span id="reset-copy"></span><span>ESC で閉じる</span></footer>
+      <header>
+        <h1>クエストボード</h1>
+        <div class="header-actions"><button id="preferences" class="text-button">クエスト抽選設定</button><button id="close" class="icon-button" aria-label="閉じる">✕</button></div>
+      </header>
+      <div class="toolbar"><div class="tabs" aria-label="クエストの期間"><button data-period="daily">デイリー</button><button data-period="weekly">ウィークリー</button></div><button id="refresh" class="text-button">進捗を更新</button></div>
+      <p id="reset-copy" class="reset-copy"></p>
+      <p id="gui-status" class="status-message" role="status" aria-atomic="true"></p>
       <p id="gui-error" role="status"></p>
+      <div class="section-heading"><h2 id="section-title" tabindex="-1"></h2><p id="completion"></p></div>
+      <p id="board-note" class="board-note"></p>
+      <div id="bonus" hidden></div>
+      <div id="quest-cards"></div>
+      <footer>ESC で閉じる</footer>
     </section>
   </main>
 </body>
