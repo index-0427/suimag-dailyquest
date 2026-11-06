@@ -1,7 +1,8 @@
 # suimag-dailyquest
 
-FiveM / Qbox 用のデイリー・ウィークリークエスト。Luaのみ、ビルド不要です。
-F10 または `/dailyquest` で ox_lib のメニューを開き、進捗を確認して達成報酬を受け取ります。
+FiveM / Qbox 用のデイリー・ウィークリークエスト。Lua + HTML/CSS/JavaScript、ビルド不要です。
+F10 または `/dailyquest` で 専用GUIを開き、進捗を確認して達成報酬を受け取ります。
+ダークグリーンのカード型UIで期間を切り替え、Escで閉じます。[プレビューとGUIの検証手順](docs/gui.md)も用意しています。
 
 - 日次20候補から3件・週次20候補から2件をキャラクター別に抽選。日次は短時間枠を最低1件
 - 日次は毎日 **JST 05:00**、週次は **月曜 JST 05:00** に更新。画面を開いている間は日次更新までのカウントダウンを表示
@@ -149,6 +150,7 @@ TZ=UTC lua tests/domain_spec.lua
 TZ=America/New_York lua tests/domain_spec.lua
 lua tests/server_spec.lua
 lua tests/client_spec.lua
+lua tests/gui_spec.lua
 lua tests/catalog_spec.lua
 lua tests/selection_spec.lua
 lua tests/boards_spec.lua
@@ -156,6 +158,7 @@ lua tests/settlement_spec.lua
 lua tests/tracking_spec.lua
 lua tests/adapters_spec.lua
 node --check ui/countdown.js
+node --check ui/quests.js
 node tests/countdown_spec.js
 python3 tests/sql_spec.py
 ```

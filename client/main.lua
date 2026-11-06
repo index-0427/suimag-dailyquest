@@ -1,6 +1,13 @@
 local prefix = 'suimag-dailyquest:'
 local busy, generation, lastList = false, 0, nil
 local open
+local guiData, guiVisible, guiReady
+local function guiHide()
+    local wasVisible=guiVisible
+    guiVisible=false
+    SendNUIMessage({action=prefix..'gui',visible=false})
+    if wasVisible then SetNuiFocus(false,false) end
+end
 local countdown,overlayStamp
 local overlayVisible,nextRefresh=false,0
 
@@ -41,8 +48,10 @@ local function request(action, ...)
     end
     if epoch ~= generation then return { ok = false, error = 'cancelled' } end
     if action == 'list' then lastList = GetGameTimer() end
+    if guiVisible then SendNUIMessage({action=prefix..'busy',busy=true}) end
     local ok, result = pcall(lib.callback.await, prefix .. action, false, ...)
     if epoch ~= generation then return { ok = false, error = 'cancelled' } end
+    if guiVisible then SendNUIMessage({action=prefix..'busy',busy=false}) end
     if not ok or type(result) ~= 'table' then return { ok = false, error = 'unavailable' } end
     return result
 end
@@ -81,6 +90,7 @@ local function configure(data)
     local operation,epoch={kind='preferences'},generation
     busy=operation
     local prefs=data.preferences or {crime=true,employment=false}
+    guiHide()
     local input=lib.inputDialog(data.needsSetup and '初回の抽選設定' or '抽選するクエストの属性',{
         {type='checkbox',label='犯罪を除外する',checked=prefs.crime},
         {type='checkbox',label='職業・所属必須を除外する',checked=prefs.employment},
@@ -106,6 +116,7 @@ local function reroll(quest)
     if busy then return end
     local operation,epoch={kind='reroll'},generation
     busy=operation
+    guiHide()
     local choice=lib.alertDialog({
         header='このクエストを交換しますか？',
         content=quest.title..' の進捗は失われます。交換後は0から開始し、この期間のリロール1回分を使います。',
@@ -130,6 +141,13 @@ local function render(data, selected)
         countdown={seconds=math.max(0,data.dailyResetAt-data.serverNow),at=GetGameTimer(),label=data.dailyReset}
     else countdown=nil end
     overlayStamp=nil
+    if Config.UseContextMenu ~= true then
+        local wasVisible=guiVisible
+        guiData,guiVisible=data,true
+        SendNUIMessage({action=prefix..'gui',visible=true,data=data,selected=selected})
+        if guiReady and not wasVisible then SetNuiFocus(true,true) end
+        return
+    end
     if data.needsSetup then
         lib.registerContext({id=root,title='クエストを始める',options={{
             title='初回の抽選設定',icon='sliders',
@@ -219,6 +237,7 @@ open = function(selected)
     if busy then return end
     local operation = {}
     busy = operation
+    if Config.UseContextMenu ~= true and not guiVisible then selected=selected or 'daily' end
     local result = request('list')
     if busy == operation then busy = false end
     if result.error == 'cancelled' then return end
@@ -231,6 +250,8 @@ if Config.Key then RegisterKeyMapping(Config.Command, 'デイリー / ウィー�
 exports('OpenQuests', function() CreateThread(function() open() end) end)
 
 local function close()
+    guiHide()
+    guiData=nil
     generation = generation + 1
     local operation=busy
     busy=false
@@ -243,12 +264,41 @@ local function close()
     if context and context:sub(1, #prefix) == prefix then lib.hideContext() end
 end
 
+RegisterNUICallback('questAction',function(data,cb)
+    cb({ok=true})
+    if type(data)~='table' or not guiVisible then return end
+    if data.action=='close' then close(); return end
+    if busy or not guiData then return end
+    if data.action=='refresh' then open(data.period=='weekly' and 'weekly' or 'daily')
+    elseif data.action=='preferences' then configure(guiData)
+    elseif data.action=='bonus' then
+        if guiData.dailyBonus and guiData.dailyBonus.canClaim then receiveBonus(guiData.dailyBonus) end
+    elseif data.action=='claim' or data.action=='reroll' then
+        for _,quest in ipairs(guiData.quests or {}) do
+            if quest.id==data.id then
+                if data.action=='claim' and quest.status=='active' and quest.value>=quest.target then receive(quest)
+                elseif data.action=='reroll' and quest.canReroll then reroll(quest) end
+                break
+            end
+        end
+    end
+end)
+
 RegisterNetEvent('QBCore:Client:OnPlayerUnload', close)
 AddEventHandler('onResourceStop', function(name)
     if name == GetCurrentResourceName() then close() end
 end)
 
--- A passive NUI badge counts locally, avoiding an ox_lib menu reopen every second.
+-- The badge counts locally; a separate GUI handshake prevents invisible focus before load.
+RegisterNUICallback('questReady',function(_,cb)
+    guiReady=true
+    if guiVisible and guiData then
+        SendNUIMessage({action=prefix..'gui',visible=true,data=guiData})
+        SetNuiFocus(true,true)
+    end
+    cb({})
+end)
+
 RegisterNUICallback('countdownReady',function(_,cb)
     overlayStamp=nil
     cb({})
@@ -259,7 +309,7 @@ CreateThread(function()
         Wait(250)
         local context=lib.getOpenContextMenu()
         local own=context==prefix..'root' or context==prefix..'daily' or context==prefix..'weekly'
-        local visible=own and not busy and countdown~=nil
+        local visible=(own or guiVisible) and not busy and countdown~=nil
         if visible then
             local now=GetGameTimer()
             local delta=now-countdown.at
@@ -280,8 +330,8 @@ CreateThread(function()
                 local result=request('list')
                 if busy==operation then busy=false end
                 -- Never steal focus from a closed menu, a dialog or another resource.
-                if epoch==generation and lib.getOpenContextMenu()==context and result.ok then
-                    render(result,context==prefix..'root' and nil or context:sub(#prefix+1))
+                if epoch==generation and (guiVisible or (own and lib.getOpenContextMenu()==context)) and result.ok then
+                    render(result,not guiVisible and context and context~=prefix..'root' and context:sub(#prefix+1) or nil)
                 end
             end
         elseif overlayVisible then

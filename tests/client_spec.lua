@@ -1,4 +1,5 @@
 dofile('config.lua')
+Config.UseContextMenu = true
 local commands, exposed, handlers, contexts, notices = {}, {}, {}, {}, {}
 local threads,nuiCallbacks,nuiMessages={},{},{}
 local clock, menu, registeredKey, requests, mode, count = 10000, nil, nil, {}, 'ok', 0
