@@ -22,5 +22,5 @@ server_scripts {
 }
 client_script 'client/main.lua'
 ui_page 'ui/countdown.html'
-files { 'sql/schema.sql', 'ui/countdown.html', 'ui/countdown.css', 'ui/countdown.js' }
+files { 'sql/schema.sql', 'ui/countdown.html', 'ui/countdown.css', 'ui/countdown.js', 'ui/quests.css', 'ui/quests.js' }
 dependencies { 'qbx_core', 'ox_lib', 'oxmysql', 'ox_inventory', '/onesync' }

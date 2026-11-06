@@ -42,11 +42,4 @@ if (typeof window !== 'undefined') {
     render();
   });
   setInterval(render, 250);
-
-  // Read-only handshake; this page never requests focus or sends gameplay actions.
-  if (typeof GetParentResourceName === 'function') {
-    fetch('https://' + GetParentResourceName() + '/countdownReady', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-    }).catch(() => {});
-  }
 }
