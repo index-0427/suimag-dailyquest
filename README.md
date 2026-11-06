@@ -11,7 +11,6 @@ F10 または `/dailyquest` で ox_lib のメニューを開き、進捗を確�
 - 進捗と受取状態を専用SQLテーブルに保存。再接続・リソース再起動後も継続
 - 同時受取をSQLの条件付き更新で排他。結果不明の配布は保留し、自動で再配布しない
 - 既存ジョブの自動連携、永続クールダウン、新規連携向けexportと完了IDによる重複排除
-- 既存の `noob_battlepass` / `sky_battlepass` / `skybp_events` が起動中なら進行・受取を休止
 - 初期キー割当はF10。LB Phone・既存ジョブ・既存DBテーブルへの変更不要
 
 ## クエスト
@@ -36,19 +35,12 @@ OneSync有効環境で使用します。必要なリソース: `oxmysql` / `ox_l
 対応バージョンと連携方針は [互換性と移行](docs/compatibility.md) を参照してください。
 
 1. リポジトリを **suimag-dailyquest** というフォルダ名で配置します。単一インスタンスのみ対応します。
-2. 旧バトルパスとその連携リソースの起動指定を整理します。`ensure [standalone]` などのカテゴリ起動にも注意してください。
-3. 依存リソース・カテゴリ起動の後に下記を設定します。同じ依存の ensure を追加する必要はありません。
-4. 起動時に `sql/schema.sql` の専用9テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
-5. コンソールで `dailyquest_status`、ゲーム内で `/dailyquest` を確認します。
+2. 依存リソース・カテゴリ起動の後に下記を設定します。同じ依存の ensure を追加する必要はありません。
+3. 起動時に `sql/schema.sql` の専用9テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
+4. コンソールで `dailyquest_status`、ゲーム内で `/dailyquest` を確認します。
 
 ```cfg
 # 既存の依存リソースとカテゴリの ensure より後に配置
-# 旧リソースの自動起動指定からも外してください。
-stop skybp_events
-stop sky_battlepass
-# noob_battlepass を導入している環境のみ停止
-# stop noob_battlepass
-
 ensure suimag-dailyquest
 ```
 

@@ -31,7 +31,7 @@ lib={
         if mode=='delayed' then coroutine.yield('await') end
         if mode=='throw' then error('timeout') end
         if mode=='nil' then return nil end
-        if mode=='conflict' then return {ok=false,error='conflict'} end
+        if mode=='not_ready' then return {ok=false,error='not_ready'} end
         if name=='suimag-dailyquest:preferences' or name=='suimag-dailyquest:reroll' or name=='suimag-dailyquest:claimBonus' then return {ok=true} end
         if name=='suimag-dailyquest:claim' then
             if mode=='pending' then return {ok=false,error='pending',claimId=42} end
@@ -76,7 +76,7 @@ mode='pending';call(contexts[prefix..'daily'].options[3].onSelect)
 eq(notices[#notices].description:find('42',1,true)~=nil,true)
 mode='throw';call(commands.dailyquest);eq(notices[#notices].type,'error')
 mode='nil';call(commands.dailyquest);eq(notices[#notices].type,'error')
-mode='conflict';call(commands.dailyquest);eq(notices[#notices].description:find('切替',1,true)~=nil,true)
+mode='not_ready';call(commands.dailyquest);eq(notices[#notices].description,'クエストの準備中です。しばらくしてからお試しください。')
 mode='ok'
 -- Switching characters closes only this menu and rejects stale replies.
 clock=clock+2000;mode='delayed'

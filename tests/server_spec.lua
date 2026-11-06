@@ -323,15 +323,24 @@ advance(15);resume(threads[2])
 eq(records[key('CLOCK','daily_time',oldStart)].progress,22)
 eq(row('CLOCK','daily_time').progress,0,'new daily tasks do not receive pre-draw time')
 eq(row('CLOCK','weekly_time').progress,30)
--- Conflicts suspend progress and claims; stopping them resumes without restart.
-resourceStates.sky_battlepass='started'
-eq(list(7).error,'conflict')
-before=#payments;eq(claim(7,'daily_visit').error,'conflict');eq(#payments,before)
-resourceStates.sky_battlepass='stopped'
-eq(list(7).ok,true)
+-- Legacy battlepasses do not block menus, progress or rewards in either startup state.
+for _,state in ipairs({'starting','started'}) do
+    for _,name in ipairs({'noob_battlepass','sky_battlepass','skybp_events'}) do
+        resourceStates[name]=state
+    end
+    local previous,previousTime=row('CLOCK','daily_time').progress,now
+    eq(list(7).ok,true)
+    advance(15);resume(threads[2])
+    eq(row('CLOCK','daily_time').progress,previous+now-previousTime)
+end
+before=#payments;eq(claim(7,'daily_visit').ok,true);eq(#payments,before+1)
+eq(claim(7,'daily_visit').error,'claimed');eq(#payments,before+1)
+-- Keep them started for the sampler, bonus and automatic-settlement scenarios below.
 -- Console diagnostics are not accessible to players.
 local logCount=#logs;commands.dailyquest_pending(7);eq(#logs,logCount)
 commands.dailyquest_pending(0);eq(#logs,logCount+1)
+logCount=#logs;commands.dailyquest_status(7);eq(#logs,logCount)
+commands.dailyquest_status(0);eq(logs[#logs],'[suimag-dailyquest] DB ready=true')
 _G.source=7;handlers.playerDropped()
 players[7]=nil
 eq(list(7).error,'player_unavailable')

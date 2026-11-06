@@ -10,12 +10,6 @@ local function log(message)
     print(('[%s] %s'):format(resource, message))
 end
 
-local function conflict()
-    for _, name in ipairs(Config.ConflictingResources) do
-        if GetResourceState(name) == 'started' or GetResourceState(name) == 'starting' then return name end
-    end
-end
-
 local function current(source, session)
     if sessions[source] ~= session or blocked[source] then return false end
     -- Exports cross a msgpack boundary: returned tables do NOT have stable identity.
@@ -66,7 +60,6 @@ local function run(source, fn, allowSetup, skipDraw)
     source = tonumber(source)
     if not DQ.integer(source, 1) then return { ok = false, error = 'player_unavailable' } end
     if not ready then return { ok = false, error = 'not_ready' } end
-    if conflict() then return { ok = false, error = 'conflict' } end
     local player = exports.qbx_core:GetPlayer(source)
     local citizenid = player and player.PlayerData.citizenid
     if not DQ.identifier(citizenid) or blocked[source] or player.Offline or player.PlayerData.source ~= source then
@@ -220,7 +213,7 @@ local function deliverReserved(source,session,row,kind,automatic)
     local invalidTime
     if automatic then invalidTime=row.period_kind~='daily' or os.time()<row.ends_at
     else invalidTime=os.time()>=row.ends_at end
-    if not current(source, session) or invalidTime or conflict() then
+    if not current(source, session) or invalidTime then
         release(row.id)
         return { ok = false, error = 'claim_unavailable' }
     end
@@ -415,12 +408,6 @@ AddEventHandler('playerDropped', function()
     blocked[source] = nil
 end)
 
-AddEventHandler('onResourceStart', function(name)
-    for _, other in ipairs(Config.ConflictingResources) do
-        if name == other then log('Conflicting resource ' .. name .. ': quests are suspended until it stops.') end
-    end
-end)
-
 -- Console only: no player ACE, network event or public endpoint exposes other characters.
 RegisterCommand('dailyquest_pending', function(source)
     if source ~= 0 then return end
@@ -431,7 +418,7 @@ RegisterCommand('dailyquest_pending', function(source)
 end, true)
 
 RegisterCommand('dailyquest_status', function(source)
-    if source == 0 then log(('DB ready=%s; conflict=%s'):format(tostring(ready), conflict() or 'none')) end
+    if source == 0 then log(('DB ready=%s'):format(tostring(ready))) end
 end, true)
 
 MySQL.ready(function()
@@ -442,7 +429,6 @@ MySQL.ready(function()
             if not ok then log('Database initialization failed; retrying in 30s: ' .. tostring(err)); Wait(30000) end
         end
         log('Ready. Command: /' .. Config.Command)
-        if conflict() then log('Conflicting resource ' .. conflict() .. ': quests are suspended until it stops.') end
     end)
 end)
 
@@ -463,7 +449,7 @@ end)
 CreateThread(function()
     while true do
         Wait(Config.Tracking.sampleSeconds * 1000)
-        if ready and not conflict() then
+        if ready then
             for sourceId, session in pairs(sessions) do
                 if current(sourceId, session) then
                     local player = exports.qbx_core:GetPlayer(sourceId)

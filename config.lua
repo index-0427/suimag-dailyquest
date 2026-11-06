@@ -10,7 +10,6 @@ Config.AutoCreateTables = true
 Config.RequestCooldownMs = 1000
 Config.ConsumeCooldownSeconds = 3
 Config.Consumables = { water = true, burger = true }
-Config.ConflictingResources = { 'noob_battlepass', 'sky_battlepass', 'skybp_events' }
 
 -- 報酬は全クエスト共通。デイリー3件で45万＋全クリア20万、ウィークリー2件で100万。
 Config.Rewards = { account='bank', daily=150000, dailyComplete=200000, weekly=500000 }
