@@ -1,18 +1,15 @@
 -- Export the actual store queries and transaction plans for the isolated DB test.
 dofile('config.lua')
 dofile('server/domain.lua')
-Config.Activities.delivery={resources={['delivery-job']=true},maxAmount=1}
-for _,period in ipairs({'daily','weekly'}) do
-    Config.Quests[#Config.Quests+1]={
-        id=period..'_delivery',period=period,metric='activity',activity='delivery',target=3,
-        title='delivery',description='delivery',
-    }
-end
 dofile('server/store.lua')
 dofile('server/selection.lua')
 dofile('server/boards.lua')
 dofile('server/bonuses.lua')
 dofile('server/settlement.lua')
+-- Test-only insertion helper for unassigned and pre-existing fixture rows.
+local fixtureSql={ensure=[[INSERT INTO suimag_dailyquest_progress
+    (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_amount)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id=id]]}
 local plans, selected = {}, nil
 MySQL={transaction={await=function(queries) plans[selected]=plans[selected] or {};for _,q in ipairs(queries) do plans[selected][#plans[selected]+1]=q end;return true end}}
 local function plan(name,fn) selected=name;fn() end
@@ -32,7 +29,7 @@ DQStore.open=function(cid,now)
                 slot=slot+1
                 queries[#queries+1]={query=DQStore.sql.assign,values={quest.id,slot,period.start,nonce,cid,kind,period.start,nonce}}
                 queries[#queries+1]={query=DQStore.sql.ensureAssigned,values={
-                    cid,quest.id,kind,period.start,period.finish,quest.target,DQ.reward(quest.period).type,'',DQ.reward(quest.period).amount,
+                    cid,quest.id,kind,period.start,period.finish,quest.target,DQ.reward(quest.period).type,DQ.reward(quest.period).amount,
                     cid,kind,period.start,nonce}}
                 assignments[quest.id]={period_start=period.start,assigned_at=period.start}
             end
@@ -48,9 +45,6 @@ plan('open',function() DQStore.open('SQLTEST',now) end)
 plan('next_day',function() DQStore.open('SQLTEST',now+86400) end)
 plan('next_week',function() DQStore.open('SQLTEST',now+604800) end)
 plan('consume',function() DQStore.consume('SQLTEST',now) end)
-plan('activity',function() DQStore.activity('SQLTEST','delivery','delivery-1',1,now) end)
-plan('repeat_next_week',function() DQStore.activity('SQLTEST','delivery','delivery-1',1,now+604800) end)
-plan('new_next_week',function() DQStore.activity('SQLTEST','delivery','delivery-2',1,now+604800) end)
 plan('time',function() DQStore.addTime('SQLTEST',1793822393,1793822408) end)
 
 DQStore.bootId='test-boot'
@@ -88,7 +82,8 @@ local function clone(value)
     local out={};for k,v in pairs(value) do out[k]=clone(v) end;return out
 end
 local fakeBoards,fakeAssignments={},{}
-DQStore.boardState=function() return clone(fakeBoards),clone(fakeAssignments) end
+DQStore.boards=function() return clone(fakeBoards) end
+DQStore.assignments=function() return clone(fakeAssignments) end
 MySQL.query={await=function() return {} end}
 MySQL.update={await=function(sql,values)
     plans[selected]=plans[selected] or {};plans[selected][#plans[selected]+1]={query=sql,values=values};return 1
@@ -167,4 +162,4 @@ local function encode(v)
     end
     error('unsupported type')
 end
-io.write(encode({sql=DQStore.sql,plans=plans,boardMeta=boardMeta}))
+io.write(encode({sql=DQStore.sql,fixtures=fixtureSql,plans=plans,boardMeta=boardMeta}))

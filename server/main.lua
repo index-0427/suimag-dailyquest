@@ -2,7 +2,6 @@ local definitions = DQ.validate(Config)
 local sessions, blocked, locks, requests, consumption = {}, {}, {}, {}, {}
 local ready = false
 local resource = GetCurrentResourceName()
-assert(resource == 'suimag-dailyquest', 'Resource folder must be named suimag-dailyquest (one instance only)')
 local prefix = 'suimag-dailyquest:'
 local settleDaily
 
@@ -70,7 +69,7 @@ local function run(source, fn, allowSetup, skipDraw)
         session = { citizenid = citizenid, wall = os.time(), timer = GetGameTimer() }
         sessions[source] = session
     end
-    -- Serialize all operations for a character, including exports and timer ticks.
+    -- Serialize all operations for a character, including activity signals and timer ticks.
     local waited = 0
     while locks[citizenid] do
         if waited >= 3000 then return { ok = false, error = 'busy' } end
@@ -167,13 +166,7 @@ local function snapshot(source)
             local period = DQ.period(quest.period, now, Config.Reset)
             local row = byId[quest.id] and byId[quest.id][period.start]
             if row then
-                local rewardLabel
-                if row.reward_type == 'item' then
-                    local item = exports.ox_inventory:Items(row.reward_name)
-                    rewardLabel = ('%s × %d'):format(item and item.label or row.reward_name, row.reward_amount)
-                else
-                    rewardLabel = ('%s $%d'):format(row.reward_type == 'bank' and '銀行' or '現金', row.reward_amount)
-                end
+                local rewardLabel = ('%s $%d'):format(row.reward_type == 'bank' and '銀行' or '現金', row.reward_amount)
                 quests[#quests + 1] = {
                     id = quest.id, period = quest.period, periodStart = period.start,
                     title = quest.title, description = quest.description,
@@ -183,16 +176,16 @@ local function snapshot(source)
                     scale = (quest.metric == 'playtime' or quest.metric == 'duty') and 60
                         or quest.metric == 'distance' and 1000 or 1,
                     precision = quest.metric == 'distance' and 1 or 0,
-                    available = not (quest.metric == 'activity' and Config.Activities[quest.activity].resource)
+                    available = quest.metric ~= 'activity'
                         or GetResourceState(Config.Activities[quest.activity].resource) == 'started',
-                    reward=rewardLabel, quick=quest.quick, tags=quest.tags,
+                    reward=rewardLabel, tags=quest.tags,
                     canReroll=row.status=='active' and row.progress<row.target
                         and tonumber(session.boards[quest.period].rerolls_used)==0,
                 }
             end
         end
         return {
-            ok=true,quests=quests,now=now,preferences=session.preferences,dailyBonus=bonus,
+            ok=true,quests=quests,preferences=session.preferences,dailyBonus=bonus,
             drawError=session.drawError,
             rerolls={daily=session.boards.daily and 1-tonumber(session.boards.daily.rerolls_used) or 0,
                 weekly=session.boards.weekly and 1-tonumber(session.boards.weekly.rerolls_used) or 0},
@@ -219,9 +212,6 @@ local function deliverReserved(source,session,row,kind,automatic)
     end
     log(('Claim %s reserved for %s / %s'):format(claimKey, session.citizenid, row.quest_id or kind))
     local ok, delivered = pcall(function()
-        if row.reward_type == 'item' then
-            return exports.ox_inventory:AddItem(source, row.reward_name, row.reward_amount)
-        end
         return exports.qbx_core:AddMoney(source, row.reward_type, row.reward_amount, 'dailyquest:' .. claimKey)
     end)
     if ok and delivered == false then
@@ -275,14 +265,7 @@ local function claim(source, questId, periodStart)
         if row.status == 'claimed' then return { ok = false, error = 'claimed' } end
         if row.progress < row.target then return { ok = false, error = 'incomplete' } end
         assert(DQ.integer(row.reward_amount, 1, 10000000), 'Invalid saved reward amount')
-        assert(row.reward_type == 'bank' or row.reward_type == 'cash'
-            or (row.reward_type == 'item' and DQ.identifier(row.reward_name)), 'Invalid saved reward type')
-        if row.reward_type == 'item' then
-            if not exports.ox_inventory:Items(row.reward_name) then return { ok = false, error = 'invalid_item' } end
-            if not exports.ox_inventory:CanCarryItem(source, row.reward_name, row.reward_amount) then
-                return { ok = false, error = 'inventory_full' }
-            end
-        end
+        assert(row.reward_type == 'bank' or row.reward_type == 'cash', 'Invalid saved reward type')
         if not current(source, session) then return { ok = false, error = 'player_unavailable' } end
         if not DQStore.reserve(session.citizenid, row.id, os.time()) then
             return { ok = false, error = 'claim_unavailable' }
@@ -367,19 +350,6 @@ AddEventHandler('ox_inventory:usedItem', function(sourceId, itemName)
     end)
 end)
 
-exports('RecordActivity', function(source, activity, amount, receipt)
-    local caller = GetInvokingResource()
-    local rule = type(activity) == 'string' and Config.Activities[activity]
-    if not rule or not rule.resources[caller] then return false, 'forbidden' end
-    if not DQ.integer(amount, 1, rule.maxAmount) or not DQ.identifier(receipt, 96) then
-        return false, 'invalid_activity'
-    end
-    local result = run(source, function(session, now)
-        DQStore.activity(session.citizenid, activity, receipt, amount, now)
-    end)
-    return result.ok, result.error
-end)
-
 local function unload(sourceId)
     sourceId = tonumber(sourceId)
     if not sourceId then return end
@@ -415,10 +385,6 @@ RegisterCommand('dailyquest_pending', function(source)
     local ok, rows = pcall(DQStore.pending)
     if not ok then log('Could not read pending claims.'); return end
     log('Pending claims (up to 50): ' .. json.encode(rows))
-end, true)
-
-RegisterCommand('dailyquest_status', function(source)
-    if source == 0 then log(('DB ready=%s'):format(tostring(ready))) end
 end, true)
 
 MySQL.ready(function()

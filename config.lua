@@ -69,10 +69,6 @@ Config.Activities = {
     house = { resource='satou_houserobbery', signal='house', cooldown=60 },
     boosting = { resource='gg_boosting', signal='boosting', cooldown=60 },
 }
-for _, rule in pairs(Config.Activities) do
-    rule.resources = { [rule.resource] = true }
-    rule.maxAmount = 1
-end
 
 -- 日次20種類・週次20種類。既存6件のIDと条件は維持。
 local function pair(id, metric, daily, weekly, titles, description, extra)

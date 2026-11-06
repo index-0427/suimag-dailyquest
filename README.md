@@ -10,7 +10,7 @@ F10 または `/dailyquest` で ox_lib のメニューを開き、進捗を確�
 - 日次更新時に達成済み・未受取の通常報酬と全クリア報酬を自動受取。オフライン中は次回ログイン時に受取
 - 進捗と受取状態を専用SQLテーブルに保存。再接続・リソース再起動後も継続
 - 同時受取をSQLの条件付き更新で排他。結果不明の配布は保留し、自動で再配布しない
-- 既存ジョブの自動連携、永続クールダウン、新規連携向けexportと完了IDによる重複排除
+- 既存ジョブのサーバー内通知との自動連携と、永続クールダウンによる重複抑止
 - 初期キー割当はF10。LB Phone・既存ジョブ・既存DBテーブルへの変更不要
 
 ## クエスト
@@ -34,10 +34,10 @@ F10 または `/dailyquest` で ox_lib のメニューを開き、進捗を確�
 OneSync有効環境で使用します。必要なリソース: `oxmysql` / `ox_lib` / `qbx_core` / `ox_inventory`。
 対応バージョンと連携方針は [互換性と移行](docs/compatibility.md) を参照してください。
 
-1. リポジトリを **suimag-dailyquest** というフォルダ名で配置します。単一インスタンスのみ対応します。
+1. リポジトリをリソースディレクトリに配置します。フォルダ名は任意です。以下は `suimag-dailyquest` を例にしています。単一インスタンスで利用します。
 2. 依存リソース・カテゴリ起動の後に下記を設定します。同じ依存の ensure を追加する必要はありません。
-3. 起動時に `sql/schema.sql` の専用9テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
-4. コンソールで `dailyquest_status`、ゲーム内で `/dailyquest` を確認します。
+3. 起動時に `sql/schema.sql` の専用8テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
+4. コンソールの `Ready. Command: /dailyquest` と、ゲーム内で `/dailyquest` を確認します。
 
 ```cfg
 # 既存の依存リソースとカテゴリの ensure より後に配置
@@ -81,38 +81,12 @@ Config.Rewards = {
 
 ## ジョブ連携
 
-任意のサーバーリソースの成功処理から呼びます。初期設定では13の連携元を許可しています。自動連携の契約は [連携仕様](docs/integrations.md) を参照してください。新しい連携元は明示的に追加します。
-
-```lua
--- config.lua
-Config.Activities.delivery = {
-    resources = { ['my-delivery'] = true },
-    maxAmount = 1,
-}
-Config.Quests[#Config.Quests + 1] = {
-    id = 'daily_delivery', period = 'daily',
-    metric = 'activity', activity = 'delivery', target = 3,
-    title = '配達のお仕事', description = '配達を3回完了する。', unit = '回',
-}
-```
-
-```lua
--- my-delivery のサーバー側。完了を検証・確定した処理の中で実行。
--- completionId はジョブ側で保存する一意ID。再試行時にも同じIDを使う。
-local ok, reason = exports['suimag-dailyquest']:RecordActivity(
-    source, 'delivery', 1, 'delivery-' .. completionId
-)
-```
-
-引数は対象プレイヤーID、活動名、加算数、一意の完了IDです。
-完了IDは英数字・`_`・`-` の1〜96文字。同じ citizenid / 活動名 / 完了ID は、週が変わっても一度しか加算しません。
-複数の連携元が同じ活動を使う場合は完了IDにリソース名などを含めてください。
-重複送信や、その活動のクエストが提示されていない場合も、受付成功として `true` を返します。進捗は提示中の該当クエストにだけ加算します。失敗は `false, reason` です。
-`busy` / `storage_error` / `not_ready` は同じ完了IDで再試行できます。`forbidden` / `invalid_activity` は設定・引数を修正します。
-オフラインプレイヤーは対象外です。成功通知前に切断した仕事を後日自動精算する機能はありません。
+13の連携元が発火するサーバー内の完了通知を `server/adapters.lua` で受信します。
+発火元を確認し、設定に応じてQboxの入金と照合したうえで、永続クールダウン付きで進捗を加算します。
+通知の契約と連携元は [連携仕様](docs/integrations.md) を参照してください。
+進捗の対象は、接続中のキャラクターに提示されているクエストです。
 
 **クライアントから任意の進捗・加算数・報酬額を送るイベントはありません。**
-外部連携側でも、クライアントの完了申告をそのままexportに流さず、所持品・位置・ジョブ状態・完了IDなどをサーバーで検証してください。
 旧 `skybp:*` のうち、成功前の狩猟通知は使用しません。リサイクル・ブースティングは確認済みの完了通知を発火元チェック付きで購読します。
 
 ほかのクライアントUIからメニューを開く場合:
@@ -121,10 +95,12 @@ local ok, reason = exports['suimag-dailyquest']:RecordActivity(
 exports['suimag-dailyquest']:OpenQuests()
 ```
 
+フォルダ名を変更した場合は、exportsの参照先もその名前に合わせます。
+
 ## 保存と障害時の扱い
 
-専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_events`、`suimag_dailyquest_signal_gates`、`suimag_dailyquest_preferences`、`suimag_dailyquest_boards`、`suimag_dailyquest_assignments`、`suimag_dailyquest_bonuses`、`suimag_dailyquest_automation` です。
-既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの9テーブルもバックアップしてください。
+専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_signal_gates`、`suimag_dailyquest_preferences`、`suimag_dailyquest_boards`、`suimag_dailyquest_assignments`、`suimag_dailyquest_bonuses`、`suimag_dailyquest_automation` です。
+既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの8テーブルもバックアップしてください。
 
 接続時間は約15秒ごとに保存します。切断・正常停止・強制終了で最後の未保存区間を失う場合があります。
 DB障害で結果不明の時間加算は再送しません。長いサーバーストールや時計の大幅な変化中の時間も加算しません。
@@ -132,9 +108,9 @@ DB障害で結果不明の時間加算は再送しません。長いサーバー
 
 報酬受取は `active → pending → claimed`。明確な付与失敗のみ `active` に戻します。
 例外・プロセス停止などで成否不明なら `pending` を保持し、自動再配布しません。
-新規報酬は共通の金銭報酬です。旧版の保存済みアイテム報酬の処理は互換性のため残しています。
+報酬は共通の金銭報酬（bank / cash）です。旧版のアイテム報酬は付与対象外です。
 
-Qboxの所持金保存・ox_inventoryの保存と当リソースのSQLは**同一トランザクションではありません**。
+Qboxの所持金保存と当リソースのSQLは**同一トランザクションではありません**。
 報酬プロバイダーの成功後も、サーバー全体の強制終了ではプロバイダー側の保存が間に合わない場合があります。
 厳密なexactly-once配布は保証しません。確認番号 `dailyquest:<claimId>` と付与ログで管理者が照合します。
 保留を一括解除したり自動再試行したりせず、[運用手順](docs/operations.md) に従ってください。

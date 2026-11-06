@@ -74,7 +74,7 @@ quest.quick = false
 
 ## 既存版からの更新
 
-抽選用の preferences / boards / assignments と全クリア報酬用の bonuses を含め、自動受取開始時刻の automation を含め専用テーブルは合計9つです。
+抽選用の preferences / boards / assignments と全クリア報酬用の bonuses を含め、自動受取開始時刻の automation を含め専用テーブルは合計8つです。
 AutoCreateTables=trueなら起動時に追加します。無効なら sql/schema.sql を再適用してください。
 既存テーブル・既存の受取状態は削除しません。
 

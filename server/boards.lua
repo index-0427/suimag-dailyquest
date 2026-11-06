@@ -20,12 +20,11 @@ S.sql.assign = [[INSERT INTO suimag_dailyquest_assignments (citizenid, period_ki
     SELECT citizenid, period_kind, period_start, ?, ?, ?, ? FROM suimag_dailyquest_boards
     WHERE citizenid = ? AND period_kind = ? AND period_start = ? AND token = ?]]
 S.sql.ensureAssigned = [[INSERT INTO suimag_dailyquest_progress
-    (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_name, reward_amount)
-    SELECT ?, ?, ?, ?, ?, ?, ?, ?, ? FROM suimag_dailyquest_boards
+    (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_amount)
+    SELECT ?, ?, ?, ?, ?, ?, ?, ? FROM suimag_dailyquest_boards
     WHERE citizenid = ? AND period_kind = ? AND period_start = ? AND token = ?
     ON DUPLICATE KEY UPDATE
         reward_type = IF(status='active',VALUES(reward_type),reward_type),
-        reward_name = IF(status='active',VALUES(reward_name),reward_name),
         reward_amount = IF(status='active',VALUES(reward_amount),reward_amount)]]
 S.sql.clearBoardToken = [[UPDATE suimag_dailyquest_boards SET token = ''
     WHERE citizenid = ? AND period_kind = ? AND period_start = ? AND token = ?]]
@@ -62,20 +61,27 @@ local function assignmentQueries(queries, cid, quest, period, slot, now, nonce)
     queries[#queries+1] = q('assign', {quest.id,slot,now,nonce,cid,quest.period,period.start,nonce})
     local reward = DQ.reward(quest.period)
     queries[#queries+1] = q('ensureAssigned', {
-        cid,quest.id,quest.period,period.start,period.finish,quest.target,reward.type,'',reward.amount,
+        cid,quest.id,quest.period,period.start,period.finish,quest.target,reward.type,reward.amount,
         cid,quest.period,period.start,nonce,
     })
 end
 
-function S.boardState(citizenid, now)
+function S.boards(citizenid, now)
     local boards = {}
     for _, board in ipairs(MySQL.query.await(S.sql.boards,{citizenid,now,now})) do boards[board.period_kind] = board end
-    local assignments = MySQL.query.await(S.sql.assignments,{citizenid,now,now})
-    return boards, assignments
+    return boards
+end
+
+function S.assignments(citizenid, now)
+    return MySQL.query.await(S.sql.assignments,{citizenid,now,now})
+end
+
+function S.boardState(citizenid, now)
+    return S.boards(citizenid, now), S.assignments(citizenid, now)
 end
 
 function S.ensureBoards(citizenid, prefs, data, state, now)
-    local boards = S.boardState(citizenid, now)
+    local boards = S.boards(citizenid, now)
     local queries = {}
     for _, kind in ipairs({'daily','weekly'}) do
         if not boards[kind] then
@@ -125,7 +131,7 @@ function S.reroll(citizenid, quest, prefs, data, state, now, definitions)
     queries[#queries+1] = q('clearBoardToken',{citizenid,quest.period,period.start,nonce})
     transaction(queries)
     -- A competing transaction may have won without this one changing anything.
-    local _, after = S.boardState(citizenid, now)
+    local after = S.assignments(citizenid, now)
     for _, assignment in ipairs(after) do
         if assignment.quest_id == replacement.id and tonumber(assignment.active)==1
             and assignment.assigned_token==nonce then return true, replacement.id end

@@ -11,7 +11,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 payload = json.loads(subprocess.check_output(["lua", "tests/dump_sql.lua"], cwd=ROOT, text=True))
-SQL, PLANS = payload["sql"], payload["plans"]
+SQL, PLANS, FIXTURES = payload["sql"], payload["plans"], payload["fixtures"]
 checks = 0
 
 
@@ -37,6 +37,10 @@ def bind(sql, values):
 
 def statement(name, values):
     return bind(SQL[name], values)
+
+
+def fixture_statement(name, values):
+    return bind(FIXTURES[name], values)
 
 
 for tool in ("mariadb-install-db", "mariadbd", "mariadb", "lua"):
@@ -100,14 +104,14 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(schema)
         execute(schema)  # migration can run repeatedly
         execute(plan("open"))
-        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_progress;"), "42", "all quests created")
+        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_progress;"), "40", "all quests created")
         eq(value("daily_visit"), "1", "daily attendance")
         week_start = 1793563200
         eq(value("weekly_visits", start=week_start), "1", "weekly attendance")
         execute(plan("open"))
         eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_visits;"), "1", "unique visits")
-        execute(statement("ensure", ["SQLTEST", "daily_visit", "daily", 1793736000,
-                                    1793822400, 99, "cash", "", 999999]))
+        execute(fixture_statement("ensure", ["SQLTEST", "daily_visit", "daily", 1793736000,
+                                    1793822400, 99, "cash", 999999]))
         eq(value("daily_visit", "target"), "1", "target snapshot")
         eq(value("daily_visit", "reward_amount"), "150000", "reward snapshot")
         eq(value("daily_visit", "reward_type"), "bank", "reward type snapshot")
@@ -143,11 +147,6 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(plan("consume"))
         eq(value("daily_meals"), "1", "successful use")
         eq(value("weekly_meals", start=week_start), "1", "weekly use")
-        # Replaying a receipt concurrently counts once in both periods.
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            list(pool.map(lambda _: execute(plan("activity")), range(4)))
-        eq(value("daily_delivery"), "1", "daily receipt dedupe")
-        eq(value("weekly_delivery", start=week_start), "1", "weekly receipt dedupe")
         execute(plan("next_day"))
         eq(value("daily_visit", start=1793822400), "1", "new daily period")
         eq(value("weekly_visits", start=week_start), "2", "new visit day")
@@ -157,10 +156,6 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         eq(value("daily_time", start=1793822400), "8", "time after reset")
         eq(value("weekly_time", start=week_start), "15", "weekly time conserved")
         execute(plan("next_week"))
-        execute(plan("repeat_next_week"))
-        eq(value("daily_delivery", start=1794340800), "0", "old receipt cannot replay next week")
-        execute(plan("new_next_week"))
-        eq(value("daily_delivery", start=1794340800), "1", "new receipt accepted")
         eq(value("weekly_visits", start=1794168000), "1", "weekly attendance resets")
         eq(len(execute(SQL["pending"]).stdout.splitlines()), 0, "no pending rows left")
         # Every shipped legacy activity writes its daily and weekly quest together.
@@ -229,11 +224,11 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(board_plan("board_prefs_change"))
         eq(board_ids(), ids, "preference updates do not change assignments")
         # An old unselected completed record cannot be claimed via a forged callback.
-        execute(statement("ensure", ["DRAW","daily_house","daily",1793736000,1793822400,1,"bank","",1000]))
+        execute(fixture_statement("ensure", ["DRAW","daily_house","daily",1793736000,1793822400,1,"bank",1000]))
         execute("UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='DRAW' AND quest_id='daily_house';")
         unselected = int(scalar("SELECT id FROM suimag_dailyquest_progress WHERE citizenid='DRAW' AND quest_id='daily_house';"))
         eq(scalar(statement("reserve",[1793736110,unselected,"DRAW",1793736110])+";SELECT ROW_COUNT();"),"0","unassigned payout rejected")
-        execute(statement("ensure", ["DRAW",meta["dailyReplacement"],"daily",1793736000,1793822400,99999,"bank","",1000]))
+        execute(fixture_statement("ensure", ["DRAW",meta["dailyReplacement"],"daily",1793736000,1793822400,99999,"bank",1000]))
         execute(f"UPDATE suimag_dailyquest_progress SET progress=99 WHERE citizenid='DRAW' AND quest_id='{meta['dailyReplacement']}';")
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
             list(pool.map(lambda _: execute(board_plan("board_reroll_daily")), range(8)))
@@ -426,6 +421,22 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(f"UPDATE suimag_dailyquest_progress SET progress=target,ends_at={cutoff-86400} WHERE citizenid='{legacy}';")
         execute(f"UPDATE suimag_dailyquest_bonuses SET ends_at={cutoff-86400} WHERE citizenid='{legacy}';")
         eq(len(auto_rows(legacy,cutoff)),0,"pre-feature expired rewards stay expired")
+        # Existing installations can retain the old schema without a destructive migration.
+        execute("ALTER TABLE suimag_dailyquest_progress "
+                "MODIFY reward_type ENUM('bank','cash','item') NOT NULL, "
+                "ADD reward_name VARCHAR(64) NOT NULL DEFAULT '';")
+        upgrade_owner="UPGRADE"
+        execute(board_plan("board_draw",upgrade_owner))
+        execute(board_plan("board_open_rewards",upgrade_owner))
+        eq(scalar(f"SELECT COUNT(*) FROM suimag_dailyquest_progress WHERE citizenid='{upgrade_owner}';"),
+           "5","new assignments work with the old optional column")
+        execute(f"UPDATE suimag_dailyquest_progress SET progress=target WHERE citizenid='{upgrade_owner}';")
+        upgrade_id=int(scalar(f"SELECT id FROM suimag_dailyquest_progress WHERE citizenid='{upgrade_owner}' AND period_kind='daily' LIMIT 1;"))
+        eq(scalar(statement("reserve",[1793736100,upgrade_id,upgrade_owner,1793736100])+";SELECT ROW_COUNT();"),
+           "1","money claim works with the previous schema")
+        execute(statement("finish",[1793736101,upgrade_id]))
+        eq(scalar(f"SELECT status FROM suimag_dailyquest_progress WHERE id={upgrade_id};"),
+           "claimed","previous schema preserves the payout lifecycle")
         print(f"sql: {checks} assertions passed (isolated MariaDB, no network)")
     finally:
         daemon.terminate()

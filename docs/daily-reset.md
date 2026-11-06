@@ -47,7 +47,6 @@ suimag_dailyquest_automation の1行に、自動受取を開始する更新時�
 
 明確な付与失敗はactiveに戻し、次の自動処理で再試行します。
 成否不明の例外・保存失敗はpendingのままにし、自動再配布しません。管理者の照合が必要です。
-旧版のアイテム報酬で持ち物が満杯の場合も、受取権を保持して後で再試行します。
 
 再試行の間隔は Config.AutoClaim.intervalSeconds（初期30秒）、
 1回の処理上限は Config.AutoClaim.batchSize（初期25件）です。

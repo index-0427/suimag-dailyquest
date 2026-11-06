@@ -2,9 +2,9 @@ dofile('config.lua')
 dofile('server/domain.lua')
 dofile('server/tracking.lua')
 dofile('server/selection.lua')
-local count, callbacks, handlers, commands, exposed, threads = 0, {}, {}, {}, {}, {}
+local count, callbacks, handlers, commands, threads = 0, {}, {}, {}, {}
 local now, timer, invoking = 1793736100, 1000, nil
-local players, records, visits, receipts, resourceStates = {}, {}, {}, {}, {}
+local players, records, visits, resourceStates = {}, {}, {}, {}
 local hooks, payments, notifications, initFailures = {}, {}, {}, 0
 local function eq(a, b, message)
     count = count + 1
@@ -32,7 +32,7 @@ local function open(cid, timestamp)
             records[k] = {
                 id=nextId, citizenid=cid, quest_id=q.id, period_kind=q.period,
                 period_start=period.start, ends_at=period.finish, target=q.target, progress=0,
-                reward_type=DQ.reward(q.period).type, reward_name='', reward_amount=DQ.reward(q.period).amount,
+                reward_type=DQ.reward(q.period).type, reward_amount=DQ.reward(q.period).amount,
                 status='active',
             }
         end
@@ -94,17 +94,6 @@ DQStore = {
             end
         end
     end,
-    activity = function(cid,activity,receipt,amount,timestamp)
-        local k=key(cid,activity,receipt)
-        if receipts[k] then return end
-        receipts[k]=true
-        for _,q in ipairs(Config.Quests) do
-            if q.metric=='activity' and q.activity==activity then
-                local r=records[key(cid,q.id,DQ.period(q.period,timestamp,Config.Reset).start)]
-                r.progress=math.min(r.target,r.progress+amount)
-            end
-        end
-    end,
     pending = function() local result={};for _,r in pairs(records) do if r.status=='pending' then result[#result+1]=copy(r) end end;return result end,
 }
 
@@ -130,7 +119,7 @@ DQStore.boardState=function(cid,timestamp)
     return boards,assignments
 end
 
-GetCurrentResourceName = function() return 'suimag-dailyquest' end
+GetCurrentResourceName = function() return 'custom-dailyquest' end
 GetResourceState = function(name) return resourceStates[name] or 'started-dependency' end
 GetGameTimer = function() return timer end
 GetInvokingResource = function() return invoking end
@@ -144,7 +133,7 @@ RegisterCommand = function(name,fn) commands[name]=fn end
 lib={callback={register=function(name,fn) callbacks[name]=fn end}}
 MySQL={ready=function(fn) fn() end}
 json={encode=function() return '[]' end}
-exports = setmetatable({
+exports = {
     qbx_core = {
         GetPlayer=function(_,id) return copy(players[id]) end,
         AddMoney=function(_,id,kind,amount,reason)
@@ -155,22 +144,9 @@ exports = setmetatable({
             return true
         end,
     },
-    ox_inventory = {
-        Items=function(_,name) if name=='water' or name=='burger' then return {label=name} end end,
-        CanCarryItem=function() return hooks.full ~= true end,
-        AddItem=function(_,id,name,amount)
-            if hooks.itemReject then return false end
-            payments[#payments+1]={id=id,item=name,amount=amount};hook('afterGrant');return true
-        end,
-    },
-},{__call=function(_,name,fn) exposed[name]=fn end})
+}
 local logs={}
 print=function(message) logs[#logs+1]=message end
-Config.Activities.delivery={resources={['delivery-job']=true},maxAmount=1}
-Config.Quests[#Config.Quests+1]={
-    id='delivery',period='daily',metric='activity',activity='delivery',target=3,
-    title='delivery',description='delivery',
-}
 initFailures=1
 dofile('server/autoclaim.lua')
 TriggerClientEvent=function(...) notifications[#notifications+1]={...} end
@@ -206,7 +182,7 @@ local function claim(id,quest,start)
 end
 player(1,'ALPHA')
 local view=list()
-eq(view.ok,true);eq(#view.quests,41)
+eq(view.ok,true);eq(#view.quests,40)
 eq(row('ALPHA','daily_visit').progress,1)
 eq(row('ALPHA','weekly_visits').progress,1)
 eq(callbacks['suimag-dailyquest:list'](1).error,'rate_limited')
@@ -239,26 +215,6 @@ eq(row('ALPHA','daily_meals').progress,2)
 -- First item use before menu/timer must still have a cooldown.
 player(3,'FIRSTITEM');handlers['ox_inventory:usedItem'](3,'water');handlers['ox_inventory:usedItem'](3,'water')
 eq(row('FIRSTITEM','daily_meals').progress,1)
--- Export permissions, bounds and durable receipt deduplication.
-invoking='evil';eq(exposed.RecordActivity(1,'delivery',1,'ride-1'),false)
-invoking='delivery-job';eq(exposed.RecordActivity(1,'delivery',-1,'ride-1'),false)
-eq(exposed.RecordActivity(1,'delivery',1,'bad receipt'),false)
-eq(exposed.RecordActivity(1,'delivery',2,'ride-1'),false)
-eq(exposed.RecordActivity(1,'delivery',1,'ride-1'),true)
-eq(exposed.RecordActivity(1,'delivery',1,'ride-1'),true)
-eq(row('ALPHA','delivery').progress,1)
-eq(exposed.RecordActivity(1,'delivery',1,'ride-2'),true)
-eq(exposed.RecordActivity(1,'delivery',1,'ride-3'),true)
--- Preserve support for unresolved historical item rewards; new definitions use only common money.
-row('ALPHA','delivery').reward_type='item'
-row('ALPHA','delivery').reward_name='water'
-row('ALPHA','delivery').reward_amount=2
-hooks.full=true;eq(claim(1,'delivery').error,'inventory_full')
-eq(row('ALPHA','delivery').status,'active')
-hooks.full=nil;hooks.itemReject=true;eq(claim(1,'delivery').error,'reward_failed')
-eq(row('ALPHA','delivery').status,'active')
-hooks.itemReject=nil;eq(claim(1,'delivery').ok,true)
-eq(payments[#payments].item,'water')
 -- Explicit provider failure is retryable; exceptions after delivery are quarantined.
 hooks.grant=function() return false end
 eq(claim(2,'daily_visit').error,'reward_failed');eq(row('BETA','daily_visit').status,'active')
@@ -339,8 +295,6 @@ eq(claim(7,'daily_visit').error,'claimed');eq(#payments,before+1)
 -- Console diagnostics are not accessible to players.
 local logCount=#logs;commands.dailyquest_pending(7);eq(#logs,logCount)
 commands.dailyquest_pending(0);eq(#logs,logCount+1)
-logCount=#logs;commands.dailyquest_status(7);eq(#logs,logCount)
-commands.dailyquest_status(0);eq(logs[#logs],'[suimag-dailyquest] DB ready=true')
 _G.source=7;handlers.playerDropped()
 players[7]=nil
 eq(list(7).error,'player_unavailable')

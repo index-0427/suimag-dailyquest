@@ -3,9 +3,6 @@ local S = DQStore
 
 -- Named queries are also exercised against an isolated MariaDB by tests/sql_spec.py.
 S.sql = {
-    ensure = [[INSERT INTO suimag_dailyquest_progress
-        (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_name, reward_amount)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE id = id]],
     visit = [[INSERT INTO suimag_dailyquest_visits (citizenid, day_start) VALUES (?, ?) ON DUPLICATE KEY UPDATE citizenid = citizenid]],
     attendance = [[UPDATE suimag_dailyquest_progress SET progress = GREATEST(progress, LEAST(target,
         (SELECT COUNT(*) FROM suimag_dailyquest_visits WHERE citizenid = ? AND day_start >= ? AND day_start < ?)))
@@ -21,12 +18,6 @@ S.sql = {
         WHERE id = ? AND status = 'pending']],
     finish = [[UPDATE suimag_dailyquest_progress SET status = 'claimed', claimed_at = ?
         WHERE id = ? AND status = 'pending']],
-    receipt = [[INSERT INTO suimag_dailyquest_events (citizenid, activity, receipt, created_at) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE processed = processed]],
-    activity = [[UPDATE suimag_dailyquest_progress SET progress = LEAST(target, progress + ?)
-        WHERE citizenid = ? AND quest_id = ? AND period_start = ? AND status = 'active'
-        AND EXISTS (SELECT 1 FROM suimag_dailyquest_events
-            WHERE citizenid = ? AND activity = ? AND receipt = ? AND processed = 0)]],
-    processed = [[UPDATE suimag_dailyquest_events SET processed = 1 WHERE citizenid = ? AND activity = ? AND receipt = ?]],
     gate = [[INSERT INTO suimag_dailyquest_signal_gates (citizenid, activity) VALUES (?, ?)
         ON DUPLICATE KEY UPDATE citizenid = citizenid]],
     throttle = [[UPDATE suimag_dailyquest_signal_gates SET last_at = ?, token = ?
@@ -35,8 +26,6 @@ S.sql = {
     signal = [[UPDATE suimag_dailyquest_progress SET progress = LEAST(target, progress + 1)
         WHERE citizenid = ? AND quest_id = ? AND period_start = ? AND status = 'active'
         AND EXISTS (SELECT 1 FROM suimag_dailyquest_signal_gates WHERE citizenid = ? AND activity = ? AND token = ?)]],
-    pending = [[SELECT id, citizenid, quest_id, period_start, attempted_at, reward_type, reward_name, reward_amount
-        FROM suimag_dailyquest_progress WHERE status = 'pending' ORDER BY attempted_at LIMIT 50]],
 }
 
 
@@ -44,7 +33,7 @@ S.sql = {
 local selected = [[ AND EXISTS (SELECT 1 FROM suimag_dailyquest_assignments a
     WHERE a.citizenid = suimag_dailyquest_progress.citizenid AND a.quest_id = suimag_dailyquest_progress.quest_id
     AND a.period_start = suimag_dailyquest_progress.period_start AND a.active = 1)]]
-for _, name in ipairs({'attendance','advance','list','row','reserve','activity','signal'}) do
+for _, name in ipairs({'attendance','advance','list','row','reserve','signal'}) do
     S.sql[name] = S.sql[name] .. selected
 end
 S.sql.time = [[UPDATE suimag_dailyquest_progress p JOIN suimag_dailyquest_assignments a
@@ -71,9 +60,8 @@ function S.init()
     MySQL.query.await('SELECT quest_id, slot, assigned_at, assigned_token, active FROM suimag_dailyquest_assignments LIMIT 0')
     MySQL.query.await('SELECT id, citizenid, period_start, ends_at, required_count, reward_type, reward_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_bonuses LIMIT 0')
     -- Fail closed if any required table or column is missing, even with auto-create disabled.
-    MySQL.query.await('SELECT id, citizenid, quest_id, period_kind, period_start, ends_at, target, progress, reward_type, reward_name, reward_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_progress LIMIT 0')
+    MySQL.query.await('SELECT id, citizenid, quest_id, period_kind, period_start, ends_at, target, progress, reward_type, reward_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_progress LIMIT 0')
     MySQL.query.await('SELECT citizenid, day_start FROM suimag_dailyquest_visits LIMIT 0')
-    MySQL.query.await('SELECT citizenid, activity, receipt, processed, created_at FROM suimag_dailyquest_events LIMIT 0')
     S.initSettlement()
 end
 
@@ -113,20 +101,6 @@ function S.consume(citizenid, now)
             queries[#queries + 1] = query('advance', { 1, citizenid, quest.id, DQ.period(quest.period, now, Config.Reset).start })
         end
     end
-    transact(queries)
-end
-
-function S.activity(citizenid, activity, receipt, amount, now)
-    local queries = { query('receipt', { citizenid, activity, receipt, now }) }
-    for _, quest in ipairs(Config.Quests) do
-        if quest.metric == 'activity' and quest.activity == activity then
-            queries[#queries + 1] = query('activity', {
-                amount, citizenid, quest.id, DQ.period(quest.period, now, Config.Reset).start,
-                citizenid, activity, receipt,
-            })
-        end
-    end
-    queries[#queries + 1] = query('processed', { citizenid, activity, receipt })
     transact(queries)
 end
 

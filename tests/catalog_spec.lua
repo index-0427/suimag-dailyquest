@@ -15,7 +15,7 @@ for _,quest in ipairs(Config.Quests) do
     sums[quest.period]=sums[quest.period]+DQ.reward(quest.period).amount
     if quest.metric=='activity' then
         local rule=Config.Activities[quest.activity]
-        assert(rule.signal and rule.resource and rule.resources[rule.resource],quest.id..': no automatic adapter')
+        assert(rule.signal and rule.resource,quest.id..': no automatic adapter')
     end
 end
 assert(counts.daily==20 and counts.weekly==20,'Expected 20 daily and 20 weekly quests')

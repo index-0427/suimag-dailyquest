@@ -22,12 +22,7 @@ function P.eligible(quest, prefs, data, state, now, reroll)
     if requirements.types and not requirements.types[job.type] then return false end
     if quest.metric == 'activity' then
         local rule = Config.Activities[quest.activity]
-        local available = false
-        if rule.resource then available = state(rule.resource) == 'started'
-        else
-            for name in pairs(rule.resources) do if state(name) == 'started' then available = true; break end end
-        end
-        if not available then return false end
+        if state(rule.resource) ~= 'started' then return false end
     end
     local period = DQ.period(quest.period, now, Config.Reset)
     if quest.metric == 'attendance' then

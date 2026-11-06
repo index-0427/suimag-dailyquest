@@ -40,23 +40,17 @@ function DQ.validate(config)
     end
     local signalSources = {}
     for name, activity in pairs(config.Activities) do
-        assert(DQ.identifier(name) and DQ.integer(activity.maxAmount, 1, 10000), 'Invalid activity')
-        assert(type(activity.resources) == 'table', 'Missing activity allowlist')
-        if activity.signal then
-            assert(activity.signal == 'job' or activity.signal == 'recycle' or activity.signal == 'house'
-                or activity.signal == 'boosting', 'Invalid activity signal')
-            assert(DQ.identifier(activity.resource) and activity.resources[activity.resource], 'Missing signal resource')
-            assert(DQ.integer(activity.cooldown, 1, 3600), 'Invalid signal cooldown')
-            local signalKey = activity.signal .. ':' .. activity.resource
-            assert(not signalSources[signalKey], 'Ambiguous signal resource')
-            signalSources[signalKey] = true
-            assert(activity.payment == nil or type(activity.payment) == 'boolean', 'Invalid payment condition')
-            for reason, allowed in pairs(activity.reasons or {}) do
-                assert(type(reason) == 'string' and #reason <= 128 and allowed == true, 'Invalid payment reason')
-            end
-        end
-        for resource, allowed in pairs(activity.resources) do
-            assert(DQ.identifier(resource) and allowed == true, 'Invalid resource allowlist')
+        assert(DQ.identifier(name), 'Invalid activity')
+        assert(activity.signal == 'job' or activity.signal == 'recycle' or activity.signal == 'house'
+            or activity.signal == 'boosting', 'Invalid activity signal')
+        assert(DQ.identifier(activity.resource), 'Missing signal resource')
+        assert(DQ.integer(activity.cooldown, 1, 3600), 'Invalid signal cooldown')
+        local signalKey = activity.signal .. ':' .. activity.resource
+        assert(not signalSources[signalKey], 'Ambiguous signal resource')
+        signalSources[signalKey] = true
+        assert(activity.payment == nil or type(activity.payment) == 'boolean', 'Invalid payment condition')
+        for reason, allowed in pairs(activity.reasons or {}) do
+            assert(type(reason) == 'string' and #reason <= 128 and allowed == true, 'Invalid payment reason')
         end
     end
 
