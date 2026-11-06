@@ -102,9 +102,20 @@
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
     }
   });
-  if (typeof GetParentResourceName === 'function') {
-    fetch(`https://${GetParentResourceName()}/questReady`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}'
-    }).catch(() => {});
+  // NUI can load before the client's callback is registered during a restart.
+  // Keep announcing readiness until acknowledged so Lua can replay the open board.
+  async function announceReady() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    try {
+      const response = await fetch(`https://${GetParentResourceName()}/questReady`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error('NUI not ready');
+    } catch (_) {
+      setTimeout(announceReady, 1000);
+    } finally { clearTimeout(timeout); }
   }
+  if (typeof GetParentResourceName === 'function') announceReady();
 })();

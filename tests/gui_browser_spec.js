@@ -92,7 +92,32 @@ const board = {
       });
       assert.equal(fits,true,`${size.width}px horizontal overflow`);
     }
+    // Lost startup notification: countdown is visible but the board message arrived
+    // before the page loaded. A failed readiness callback must eventually replay it.
+    const startup = await browser.newPage();
+    await startup.addInitScript(data => {
+      window.readyAttempts = 0;
+      window.GetParentResourceName = () => 'suimag-test';
+      window.fetch = async (_, options) => {
+        window.readyAttempts++;
+        if (window.readyAttempts === 1) return new Promise((_, reject) => {
+          options.signal.addEventListener('abort', () => reject(new Error('callback timed out')));
+        });
+        if (window.readyAttempts === 2) return {ok:false};
+        if (window.readyAttempts === 3) throw new Error('callback not registered');
+        window.postMessage({action:'suimag-dailyquest:gui',visible:true,data},'*');
+        return {ok:true};
+      };
+    }, board);
+    await startup.goto(`http://127.0.0.1:${server.address().port}/countdown.html`);
+    await startup.evaluate(() => window.postMessage({action:'suimag-dailyquest:countdown',visible:true,remaining:120,resetLabel:'tomorrow'},'*'));
+    await startup.locator('#daily-countdown').waitFor({state:'visible'});
+    assert.equal(await startup.locator('#quest-app').isVisible(),false);
+    await startup.locator('#quest-app').waitFor({state:'visible',timeout:10000});
+    assert.equal(await startup.evaluate(() => window.readyAttempts),4);
+    assert.equal(await startup.locator('.quest-card').count(),3);
+    await startup.close();
     assert.deepEqual(errors,[]);
-    console.log('GUI browser: rendering, actions, tabs, busy/close, setup, escaping, errors and responsive layout passed');
+    console.log('GUI browser: rendering, actions, tabs, busy/close, setup, escaping, errors, startup recovery and responsive layout passed');
   } finally { if (browser) await browser.close(); server.close(); }
 })().catch(error => { console.error(error);process.exitCode=1;server.close(); });

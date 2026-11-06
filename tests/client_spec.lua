@@ -122,7 +122,10 @@ before=#requests;run(commands.dailyquest);eq(#requests,before,'old reply cannot 
 delayed=false;ok,result=coroutine.resume(newer);assert(ok,result)
 eq(guiMessage().visible,true)
 action('close')
-before=focusCalls;handlers['QBCore:Client:OnPlayerUnload']()
+before=focusCalls
+callbacks.questReady({},function() end)
+eq(guiMessage().visible,false,'late readiness must not reopen a closed board')
+handlers['QBCore:Client:OnPlayerUnload']()
 eq(focusCalls,before,'do not release another resource focus when already closed')
 -- Timer ticks are local; only crossing the deadline requests a fresh board.
 view.serverNow=2000;view.dailyResetAt=2010
