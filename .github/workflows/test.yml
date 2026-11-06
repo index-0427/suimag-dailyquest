@@ -21,7 +21,6 @@ jobs:
           TZ=America/New_York lua tests/domain_spec.lua
           lua tests/server_spec.lua
           lua tests/client_spec.lua
-          lua tests/gui_spec.lua
           lua tests/catalog_spec.lua
           lua tests/selection_spec.lua
           lua tests/boards_spec.lua

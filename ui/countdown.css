@@ -2,16 +2,16 @@
 html, body { margin: 0; background: transparent; pointer-events: none; overflow: hidden; }
 body { font-family: "Yu Gothic UI", "Meiryo", system-ui, sans-serif; }
 #daily-countdown {
-  position: fixed; top: 3vh; left: 50%; transform: translateX(-50%);
+  position: fixed; top: 1.5vh; left: 50%; transform: translateX(-50%);
   display: flex; align-items: center; justify-content: space-between; gap: 24px;
-  width: min(450px, 94vw); padding: 14px 20px;
-  color: #edf1fb; background: rgba(21, 25, 36, .96);
-  border: 1px solid rgba(156, 175, 213, .3); border-radius: 10px;
+  width: min(350px, 94vw); padding: 6px 16px;
+  color: #edf1fb; background: #131a18;
+  border: 1px solid #354139; border-radius: 10px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, .22);
 }
 #daily-countdown[hidden] { display: none; }
 .copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .label { font-size: 13px; font-weight: 600; letter-spacing: .04em; }
 #reset-label { color: #b9c4d9; font-size: 11px; white-space: nowrap; }
-#remaining { font-size: 27px; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: .03em; white-space: nowrap; }
+#remaining { font-size: 22px; line-height: 1.2; font-variant-numeric: tabular-nums; letter-spacing: .03em; white-space: nowrap; }
 #daily-countdown[data-expired="true"] #remaining { color: #b9d7ff; font-size: 20px; }

@@ -82,7 +82,6 @@
     if (data.action !== 'suimag-dailyquest:gui') return;
     const wasHidden = app.hidden;
     app.hidden = data.visible !== true;
-    document.body.classList.toggle('gui-visible', !app.hidden);
     busy = false;
     if (!app.hidden && data.data) {
       board = data.data; if (data.selected === 'weekly' || data.selected === 'daily') period = data.selected;

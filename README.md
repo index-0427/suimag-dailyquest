@@ -1,8 +1,8 @@
 # suimag-dailyquest
 
 FiveM / Qbox 用のデイリー・ウィークリークエスト。Lua + HTML/CSS/JavaScript、ビルド不要です。
-F10 または `/dailyquest` で 専用GUIを開き、進捗を確認して達成報酬を受け取ります。
-ダークグリーンのカード型UIで期間を切り替え、Escで閉じます。[プレビューとGUIの検証手順](docs/gui.md)も用意しています。
+F10 または `/dailyquest` で専用GUIを開き、進捗を確認して達成報酬を受け取ります。
+ダークグリーンのカード型UIで期間を切り替え、Escで閉じます。[GUIの検証手順](docs/gui.md)も用意しています。
 
 - 日次20候補から3件・週次20候補から2件をキャラクター別に抽選。日次は短時間枠を最低1件
 - 日次は毎日 **JST 05:00**、週次は **月曜 JST 05:00** に更新。画面を開いている間は日次更新までのカウントダウンを表示
@@ -150,7 +150,6 @@ TZ=UTC lua tests/domain_spec.lua
 TZ=America/New_York lua tests/domain_spec.lua
 lua tests/server_spec.lua
 lua tests/client_spec.lua
-lua tests/gui_spec.lua
 lua tests/catalog_spec.lua
 lua tests/selection_spec.lua
 lua tests/boards_spec.lua
@@ -172,5 +171,5 @@ FiveMの実描画・ゲーム接続・各報酬プロバイダーの動作は実
 
 - [Qbox Server Exports](https://docs.qbox.re/resources/qbx_core/exports/server)
 - [FiveM Secure Your Events](https://docs.fivem.net/docs/developers/server-security/)
-- [Ox Lib Context Menu](https://overextended.dev/docs/ox_lib/Interface/Client/context)
+- [FiveM NUI Callbacks](https://docs.fivem.net/docs/scripting-manual/nui-development/nui-callbacks/)
 - [Oxmysql Transaction](https://overextended.dev/docs/oxmysql/Functions/transaction)

@@ -15,17 +15,12 @@ const elements={
   'reset-label':{textContent:''},
   remaining:{textContent:''},
 };
-const requests=[];
 vm.runInNewContext(fs.readFileSync('ui/countdown.js','utf8'),{
   window:{addEventListener:(name,fn)=>{assert.equal(name,'message');listener=fn;}},
   document:{getElementById:id=>elements[id]},
   performance:{now:()=>now},
   setInterval:(fn,ms)=>{assert.equal(ms,250);tick=fn;},
-  GetParentResourceName:()=> 'suimag-dailyquest',
-  fetch:(url,options)=>{requests.push({url,options});return Promise.resolve({});},
 });
-assert.equal(requests.length,1);
-assert.equal(requests[0].url,'https://suimag-dailyquest/countdownReady');
 listener({data:{action:'unrelated',visible:true,remaining:60,resetLabel:'ignored'}});
 assert.equal(elements['daily-countdown'].hidden,true);
 listener({data:{action:'suimag-dailyquest:countdown',visible:true,remaining:61,resetLabel:'11/05 05:00 (UTC+09:00)'}});

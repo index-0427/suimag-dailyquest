@@ -9,11 +9,11 @@ Qbox + ox_inventory を使用するFiveMサーバー向けです。ESXやqb-inve
 | --- | --- | --- |
 | qbx_core | 1.23.0 | GetPlayer、AddMoney、サーバー内のPlayerLoaded / OnPlayerUnload |
 | ox_inventory | 2.45.0 | usedItem、Items、CanCarryItem、AddItem |
-| ox_lib | 3.32.3 | サーバーcallback、context menu、notify |
+| ox_lib | 3.32.3 | サーバーcallback、設定・確認ダイアログ、notify |
 | oxmysql | 2.12.3 | query / single / update / transaction のawait |
 
 Qboxの直接exportを使用し、qb-core互換ブリッジには依存しません。
-メニューは既存ox_libを使用し、カウントダウンだけを同梱の小さなNUIで表示します。電話リソース・追加ビルドへの依存はありません。
+クエストボードとカウントダウンは同梱のNUI、設定・交換確認はox_libのダイアログを使用します。電話リソース・追加ビルドへの依存はありません。
 カウントダウンはNUIフォーカスを取得せず、別リソースのUIを開き直しません。
 
 ## 連携上の前提
