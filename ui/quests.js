@@ -91,6 +91,7 @@
   }
   function button(text, kind, extra, className = 'action-button') {
     const el = node('button', className, text);
+    el.dataset.icon = ({ claim: 'claim', bonus: 'claim', reroll: 'refresh' })[kind] || '';
     el.dataset.focusKey = extra?.id ? `quest:${extra.id}:${kind}` : kind;
     el.onclick = () => action(kind, extra, el);
     return el;
@@ -114,7 +115,7 @@
     $('board-view').hidden = true;
     $('preferences-view').hidden = false;
     $('preferences').hidden = true;
-    $('preferences-kicker').textContent = board.needsSetup ? 'はじめに · あなたに合ったクエストを' : 'QUEST PREFERENCES';
+    $('preferences-kicker').textContent = board.needsSetup ? 'はじめに · あなたに合ったクエストを' : '遊び方に合わせて';
     $('preferences-timing').textContent = board.needsSetup
       ? '保存すると、最初のデイリー・ウィークリークエストを抽選します。'
       : '次回の更新・リロールから適用します。現在のクエスト・進捗・リロール回数は変わりません。';
@@ -143,6 +144,7 @@
     if (!board) return;
     const focus = readFocus() || savedFocus;
     const daily = period === 'daily';
+    app.dataset.activePeriod = period;
     const quests = (Array.isArray(board.quests) ? board.quests : []).filter(q => q.period === period);
     const completed = quests.filter(q => q.value >= q.target).length;
     document.querySelectorAll('[data-period]').forEach(el => {
@@ -156,15 +158,22 @@
     $('board-note').textContent = board.needsSetup ? '抽選設定から、犯罪・職業条件の除外を選んでスタートしましょう。' : board.drawError ? '抽選候補が不足しています。抽選設定や連携元の状態を確認してください。' : `リロール残り ${(board.rerolls || {})[period] || 0}回 · 未達成のクエストを1件交換できます。`;
     const cards = $('quest-cards'); cards.replaceChildren();
     cards.dataset.count = String(quests.length);
-    quests.forEach((q, index) => {
+    quests.forEach(q => {
       const done = q.value >= q.target, claimable = done && q.status === 'active';
       const state = q.status === 'claimed' ? '受取済み' : q.status === 'pending' ? '確認待ち' : claimable ? '達成！' : q.available === false ? '連携元が未起動' : '進行中';
       const card = node('article', 'quest-card' + (done ? ' completed' : '') + (q.status === 'pending' ? ' awaiting-review' : ''));
+      const category = q.tags?.crime ? 'crime' : q.tags?.employment ? 'employment' : 'general';
+      card.dataset.category = category;
+      card.classList.toggle('claimed', q.status === 'claimed');
       const heading = node('h3', '', q.title);
       heading.tabIndex = -1; heading.dataset.focusKey = `quest:${q.id}`;
       const top = node('div', 'card-top');
-      top.append(node('span', 'quest-number', String(index + 1).padStart(2, '0')), node('span', 'status', state));
-      card.append(top, node('p', 'category', q.tags && q.tags.crime ? '犯罪' : q.tags && q.tags.employment ? '職業・所属必須' : '一般'), heading, node('p', 'description', q.description));
+      const emblem = node('span', 'quest-emblem');
+      emblem.setAttribute('aria-hidden', 'true');
+      const identity = node('div', 'card-identity');
+      identity.append(emblem, node('p', 'category', { crime: '犯罪', employment: '職業・所属必須', general: '一般' }[category]));
+      top.append(identity, node('span', 'status', state));
+      card.append(top, heading, node('p', 'description', q.description));
       const factor = 10 ** (q.precision || 0), scale = q.scale || 1;
       card.append(node('p', 'progress-copy', `${Math.floor(q.value / scale * factor) / factor} / ${q.target / scale} ${q.unit || ''}`));
       const track = node('div', 'progress-track');
@@ -172,9 +181,12 @@
       track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', String(q.target)); track.setAttribute('aria-valuenow', String(Math.min(q.value, q.target)));
       track.setAttribute('aria-valuetext', `${Math.floor(q.value / scale * factor) / factor} / ${q.target / scale} ${q.unit || ''}`);
       const fill = node('div'); fill.style.width = `${Math.max(0, Math.min(100, q.value / q.target * 100))}%`; track.append(fill);
-      const bottom = node('div', 'card-bottom'); bottom.append(node('div', 'reward', q.reward));
-      if (claimable) bottom.append(button('報酬を受け取る ↗', 'claim', { id: q.id }));
-      else if (q.canReroll) bottom.append(button('↻ 交換', 'reroll', { id: q.id }, 'secondary-button'));
+      const bottom = node('div', 'card-bottom');
+      const reward = node('div', 'reward-copy');
+      reward.append(node('span', 'reward-label', 'クリア報酬'), node('div', 'reward', q.reward));
+      bottom.append(reward);
+      if (claimable) bottom.append(button('報酬を受け取る', 'claim', { id: q.id }));
+      else if (q.canReroll) bottom.append(button('交換', 'reroll', { id: q.id }, 'secondary-button'));
       else if (q.status !== 'pending') bottom.append(node('span', 'muted', q.status === 'claimed' ? '✓' : state));
       card.append(track, bottom);
       if (q.status === 'pending') card.append(node('p', 'pending-help', pendingHelp));
@@ -201,7 +213,9 @@
         bonus.classList.add('awaiting-review');
         copy.append(node('p', 'pending-help', pendingHelp));
       }
-      bonus.append(copy, b.canClaim ? button('ボーナスを受け取る ↗', 'bonus') : node('span', 'bonus-state', b.status === 'claimed' ? '✓ 受取済み' : b.status === 'pending' ? '確認待ち' : '全クリアで解放'));
+      const emblem = node('span', 'bonus-emblem');
+      emblem.setAttribute('aria-hidden', 'true');
+      bonus.append(emblem, copy, b.canClaim ? button('ボーナスを受け取る', 'bonus') : node('span', 'bonus-state', b.status === 'claimed' ? '✓ 受取済み' : b.status === 'pending' ? '確認待ち' : '全クリアで解放'));
     }
     bonus.hidden = !bonus.childElementCount;
     $('reset-copy').hidden = board.needsSetup === true;

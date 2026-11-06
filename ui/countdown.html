@@ -18,22 +18,26 @@
     <strong id="remaining">00:00:00</strong>
   </aside>
   <main id="quest-app" hidden role="dialog" aria-modal="true" aria-label="クエストボード">
-    <nav class="rail"><span class="brand">S<span>Q</span></span><span class="rail-mark" aria-hidden="true">◈</span><span class="rail-caption">FLECITY</span></nav>
+    <aside class="rail" aria-label="Flecity"><span class="brand">S<span>Q</span></span><span class="rail-mark" aria-hidden="true"></span><span class="rail-caption">FLECITY</span></aside>
     <section class="workspace" tabindex="-1">
-      <header><h1>クエストボード</h1><div class="header-actions"><button id="preferences" class="secondary-button">⚙ クエスト抽選設定</button><button id="close" class="icon-button" aria-label="閉じる" title="閉じる（Esc）">✕</button></div></header>
+      <header><div class="heading-copy"><h1>クエストボード</h1><p class="header-description">街でのひとときを、達成と報酬に。</p></div><div class="header-actions"><button id="preferences" class="secondary-button" data-icon="settings">クエスト抽選設定</button><button id="close" class="icon-button" data-icon="close" aria-label="閉じる" title="閉じる（Esc）"></button></div></header>
       <p id="gui-status" class="status-message" role="status" aria-atomic="true"></p>
       <p id="gui-error" role="status"></p>
       <div id="board-view">
-        <div class="toolbar"><div class="tabs" aria-label="クエストの期間"><button data-period="daily">デイリー</button><button data-period="weekly">ウィークリー</button></div><button id="refresh" class="secondary-button">↻ 進捗を更新</button></div>
+        <div class="toolbar"><div class="tabs" aria-label="クエストの期間"><button data-period="daily" data-icon="sun">デイリー</button><button data-period="weekly" data-icon="calendar">ウィークリー</button></div><button id="refresh" class="secondary-button" data-icon="refresh">進捗を更新</button></div>
         <p id="reset-copy" class="reset-copy"></p>
-        <div class="section-heading"><h2 id="section-title" tabindex="-1"></h2><p id="completion"></p></div>
-        <p id="board-note" class="board-note"></p>
-        <div id="bonus" hidden></div>
+        <div class="board-overview">
+          <div class="board-intro">
+            <div class="section-heading"><h2 id="section-title" tabindex="-1"></h2><p id="completion"></p></div>
+            <p id="board-note" class="board-note"></p>
+          </div>
+          <div id="bonus" hidden></div>
+        </div>
         <div id="quest-cards"></div>
-        <footer>ESC で閉じる</footer>
+        <footer><span>自分のペースで、ひとつずつ。</span><span><kbd>Esc</kbd> で閉じる</span></footer>
       </div>
       <form id="preferences-view" hidden aria-labelledby="preferences-title">
-        <p class="eyebrow" id="preferences-kicker">QUEST PREFERENCES</p>
+        <p class="eyebrow" id="preferences-kicker">遊び方に合わせて</p>
         <h2 id="preferences-title" tabindex="-1">クエスト抽選設定</h2>
         <p class="preferences-intro">遊び方に合わせて、抽選から外したいクエストを選んでください。</p>
         <fieldset id="preferences-fields">

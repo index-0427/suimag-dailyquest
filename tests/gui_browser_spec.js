@@ -7,6 +7,12 @@ const path = require('node:path');
 const { chromium } = require('playwright');
 const root = path.resolve(__dirname, '../ui');
 const server = http.createServer((req, res) => {
+  if (req.url === '/transparency-host') {
+    // A contrasting parent exposes opaque NUI canvases that a normal page screenshot misses.
+    res.setHeader('Content-Type', 'text/html');
+    res.end('<!doctype html><html style="background:rgb(79,166,135)"><body style="margin:0"><iframe name="nui" title="Quest NUI" src="/countdown.html" style="display:block;width:100vw;height:100vh;border:0"></iframe></body></html>');
+    return;
+  }
   const name = path.basename(req.url.split('?')[0]);
   const filename = path.join(root, name);
   if (!fs.existsSync(filename) || !fs.statSync(filename).isFile()) { res.writeHead(404);res.end();return; }
@@ -30,6 +36,47 @@ const board = {
   let browser;
   try {
     browser = await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH || '/usr/bin/chromium',args:['--no-sandbox']});
+    // Real embedding matters: a root dark color scheme paints an opaque canvas even
+    // when computed html/body backgrounds are transparent. A standalone screenshot
+    // using omitBackground also misses this embedding-specific problem.
+    const embedded = await browser.newPage({viewport:{width:1280,height:720}});
+    const hostUrl = 'http://127.0.0.1:' + server.address().port + '/transparency-host';
+    const assertBackdrop = async label => {
+      const png = await embedded.screenshot({animations:'disabled',clip:{x:640,y:650,width:1,height:1}});
+      const rgba = await embedded.evaluate(base64 => new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = canvas.height = 1;
+          const context = canvas.getContext('2d');
+          context.drawImage(image,0,0);
+          resolve(Array.from(context.getImageData(0,0,1,1).data));
+        };
+        image.onerror = () => reject(new Error('Could not decode transparency sample'));
+        image.src = 'data:image/png;base64,' + base64;
+      }), png.toString('base64'));
+      assert.deepEqual(rgba,[79,166,135,255],label);
+    };
+    for (const colorScheme of ['light','dark']) {
+      await embedded.emulateMedia({colorScheme});
+      await embedded.goto(hostUrl);
+      let nui = embedded.frame({name:'nui'});
+      await nui.locator('#quest-app').waitFor({state:'hidden'});
+      await assertBackdrop(colorScheme + ': startup must expose the game backdrop');
+      await nui.evaluate(() => window.postMessage({action:'suimag-dailyquest:countdown',visible:true,remaining:120,resetLabel:'tomorrow'},'*'));
+      await nui.locator('#daily-countdown').waitFor({state:'visible'});
+      await assertBackdrop(colorScheme + ': countdown must not paint the full screen');
+      await nui.evaluate(data => window.postMessage({action:'suimag-dailyquest:gui',visible:true,data},'*'),board);
+      await nui.locator('#quest-app').waitFor({state:'visible'});
+      await nui.evaluate(() => window.postMessage({action:'suimag-dailyquest:gui',visible:false},'*'));
+      await nui.locator('#quest-app').waitFor({state:'hidden'});
+      await assertBackdrop(colorScheme + ': closing the board must expose the game backdrop');
+      await embedded.reload();
+      nui = embedded.frame({name:'nui'});
+      await nui.locator('#quest-app').waitFor({state:'hidden'});
+      await assertBackdrop(colorScheme + ': reloading NUI must expose the game backdrop');
+    }
+    await embedded.close();
     const page = await browser.newPage({viewport:{width:1440,height:960}});
     const errors = [];page.on('pageerror', e => errors.push(e.message));
     await page.addInitScript(() => {
@@ -61,7 +108,7 @@ const board = {
     assert.equal(await page.locator('.quest-card').count(), 3);
     assert.match(await page.locator('#completion').textContent(), /1 \/ 3/);
     assert.equal(await page.locator('.rail-caption').textContent(),'FLECITY');
-    assert.equal(await page.locator('#preferences').textContent(),'⚙ クエスト抽選設定');
+    assert.equal(await page.locator('#preferences').textContent(),'クエスト抽選設定');
     assert.equal(await page.locator('.reward').first().textContent(),'銀行 $150000 + 黒コイン × 1');
     // Settings are an actual view. Edits stay local until saved and survive refresh/errors.
     const preferenceCallsBefore = await page.evaluate(() => nuiCalls.length);
@@ -96,7 +143,7 @@ const board = {
     assert.equal(await page.locator('#exclude-employment').isChecked(),true,'saved settings remain current even before list refresh');
     await page.keyboard.press('Escape');
     await page.locator('#board-view').waitFor({state:'visible'});
-    await page.getByRole('button',{name:'報酬を受け取る ↗'}).click();
+    await page.getByRole('button',{name:'報酬を受け取る'}).click();
     assert.deepEqual(await page.evaluate(()=>nuiCalls.at(-1).data),{action:'claim',period:'daily',id:'visit'});
     board.quests[0].status='claimed';await show();
     await page.locator('.quest-card').first().getByText('受取済み',{exact:true}).waitFor();
@@ -252,6 +299,6 @@ const board = {
     assert.equal(await startup.locator('.quest-card').count(),3);
     await startup.close();
     assert.deepEqual(errors,[]);
-    console.log('GUI browser: rendering, actions, tabs, busy/close, setup, escaping, errors and responsive layout passed');
+    console.log('GUI browser: embedded transparency, rendering, actions, tabs, busy/close, setup, escaping, errors and responsive layout passed');
   } finally { if (browser) await browser.close(); server.close(); }
 })().catch(error => { console.error(error);process.exitCode=1;server.close(); });
