@@ -61,7 +61,7 @@
       const fill = node('div'); fill.style.width = `${Math.max(0, Math.min(100, q.value / q.target * 100))}%`; track.append(fill);
       const bottom = node('div', 'card-bottom'); bottom.append(node('div', 'reward', q.reward));
       if (claimable) bottom.append(button('報酬を受け取る ↗', 'claim', { id: q.id }));
-      else if (q.canReroll) bottom.append(button('↻ 交換', 'reroll', { id: q.id }, 'text-button'));
+      else if (q.canReroll) bottom.append(button('↻ 交換', 'reroll', { id: q.id }, 'secondary-button'));
       else bottom.append(node('span', 'muted', q.status === 'claimed' ? '✓' : state));
       card.append(track, bottom); cards.append(card);
     });
