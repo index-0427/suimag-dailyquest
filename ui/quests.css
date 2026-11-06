@@ -306,3 +306,68 @@ kbd { font: inherit; font-size: 11px; border: 1px solid #51617b; border-bottom-w
   --icon-briefcase: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Crect%20x%3D%223%22%20y%3D%227%22%20width%3D%2218%22%20height%3D%2214%22%20rx%3D%222%22%2F%3E%3Cpath%20d%3D%22M8%207V4h8v3M3%2012a22%2022%200%200%200%2018%200m-9%200v3%22%2F%3E%3C%2Fsvg%3E");
   --icon-trophy: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22black%22%20stroke-width%3D%221.7%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpath%20d%3D%22M8%203h8v6a4%204%200%200%201-8%200ZM12%2013v5m-4%203v-3h8v3ZM8%205H4v2a4%204%200%200%200%204%204m8-6h4v2a4%204%200%200%201-4%204%22%2F%3E%3C%2Fsvg%3E");
 }
+
+
+/* Admin diagnostics use the existing board palette and a compact, scannable list. */
+[data-icon="compass"] { --icon: var(--icon-compass); }
+[data-icon="debug"] { --icon: var(--icon-settings); }
+#debug-nav { display: flex; flex-direction: column; gap: 12px; width: 100%; padding: 0 6px; }
+#debug-nav button { flex-direction: column; gap: 7px; min-height: 62px; padding: 9px 3px; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: 10px; font-size: 11px; }
+#debug-nav button:hover { background: var(--surface); color: var(--text); }
+#debug-nav button[aria-pressed="true"] { color: var(--mint); background: #9befd012; border-color: #9befd04d; }
+#debug-nav #debug-tab[aria-pressed="true"] { color: var(--gold); background: #f1cc850d; border-color: #f1cc8555; }
+.debug-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.debug-intro, .debug-help { color: var(--muted); font-size: 14px; line-height: 1.7; margin: 8px 0 16px; }
+.debug-access { flex-shrink: 0; font-size: 13px; padding: 6px 10px; color: var(--gold); border: 1px solid #f1cc8555; border-radius: 7px; }
+.debug-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+#debug-recording { font-size: 14px; color: var(--muted); margin-right: auto; }
+#debug-recording.recording { color: var(--mint); }
+#debug-feedback { color: var(--mint); font-size: 14px; line-height: 1.6; }
+#debug-feedback:empty { display: none; }
+#debug-view input:focus-visible, #debug-filter:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+.debug-list-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 20px; margin: 16px 0; }
+.debug-filter { display: flex; align-items: center; gap: 10px; margin-left: auto; color: var(--muted); font-size: 14px; }
+#debug-filter { min-height: 44px; padding: 8px 12px; font: inherit; color: var(--text); background: var(--surface); border: 1px solid #5d708c; border-radius: 8px; }
+.debug-summary { color: var(--text); font-size: 14px; line-height: 1.7; margin: 0; }
+.debug-columns, .debug-row { display: grid; grid-template-columns: minmax(200px, 1fr) 88px minmax(155px, .42fr) 78px 92px; gap: 16px; align-items: center; }
+.debug-columns { font-size: 12px; color: var(--muted); padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.debug-row { padding: 16px; border-bottom: 1px solid var(--line); }
+.debug-row:nth-child(even) { background: #91bbff04; }
+.debug-row h3 { font-size: 17px; line-height: 1.6; margin: 3px 0; }
+.debug-period-label { color: var(--blue); font-size: 12px; }
+.debug-description { font-size: 14px; line-height: 1.6; margin: 4px 0; color: #c1cee0; }
+.debug-source { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 4px 0 0; overflow-wrap: anywhere; }
+.debug-unavailable { font-size: 13px; color: var(--coral); margin: 5px 0 0; }
+.debug-state { justify-self: start; font-size: 13px; padding: 5px 8px; border-radius: 6px; color: var(--muted); background: #ffffff08; white-space: nowrap; }
+.debug-state[data-state="moved"] { color: var(--blue); background: #91bbff12; }
+.debug-state[data-state="done"] { color: var(--mint); background: #9befd012; }
+.debug-progress { display: flex; flex-direction: column; gap: 7px; font-variant-numeric: tabular-nums; }
+.debug-progress strong { font-size: 15px; overflow-wrap: anywhere; }
+.debug-progress span { font-size: 12px; color: var(--muted); }
+.debug-pool { display: flex; gap: 8px; align-items: center; min-height: 44px; cursor: pointer; font-size: 13px; }
+.debug-pool input { width: 22px; height: 22px; margin: 0; accent-color: var(--mint); cursor: pointer; }
+.debug-pool:has(input:disabled) { cursor: wait; opacity: .55; }
+.debug-row > button { padding: 8px; font-size: 13px; }
+@media (max-width: 1100px) {
+  .debug-columns { display: none; }
+  .debug-row { grid-template-columns: minmax(0, 1fr) 80px 92px; gap: 12px; }
+  .debug-identity { grid-column: 1 / -1; }
+  .debug-progress { grid-column: 1; grid-row: 3; }
+  .debug-row > .debug-state { grid-column: 1; grid-row: 2; }
+  .debug-pool { grid-column: 2; grid-row: 2 / 4; }
+  .debug-row > button { grid-column: 3; grid-row: 2 / 4; }
+}
+@media (max-width: 700px) {
+  #quest-app[data-can-debug="true"] { flex-direction: column; }
+  #quest-app[data-can-debug="true"] .rail { display: flex; width: 100%; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  #quest-app[data-can-debug="true"] .rail .brand, #quest-app[data-can-debug="true"] .rail-caption { display: none; }
+  #debug-nav { flex-direction: row; padding: 0; }
+  #debug-nav button { flex-direction: row; min-height: 44px; padding: 8px 12px; font-size: 13px; }
+  #quest-app[data-can-debug="true"] .workspace { max-height: calc(var(--board-height) - 61px); }
+  .debug-heading { flex-wrap: wrap; gap: 8px; }
+  .debug-controls > button { flex: 1 1 auto; }
+  #debug-recording { flex-basis: 100%; margin-bottom: 4px; }
+  .debug-row { padding: 16px 0; grid-template-columns: minmax(0, 1fr) 66px 80px; gap: 10px; }
+  .debug-progress { grid-column: 1 / -1; grid-row: 3; }
+  .debug-pool, .debug-row > button { grid-row: 2; }
+}

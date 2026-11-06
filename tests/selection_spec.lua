@@ -55,4 +55,11 @@ eq(P.eligible(defs.daily_visit,{crime=false,employment=false},police,all,now,tru
 local sunday=DQ.period('weekly',now,Config.Reset).finish-3600
 eq(P.eligible(defs.weekly_visits,{crime=false,employment=false},police,all,sunday),false,'not enough remaining days')
 eq(P.eligible(defs.weekly_time,{crime=false,employment=false},police,all,sunday),false,'not enough remaining time')
+P.disabled.daily_meals=true
+eq(P.eligible(defs.daily_meals,{crime=false,employment=false},police,all,now),false,'global pool exclusion')
+eq(P.eligible(defs.daily_meals,{crime=false,employment=false},police,all,now,true),false,'reroll respects global exclusion')
+for _,quest in ipairs(Config.Quests) do P.disabled[quest.id]=true end
+local empty,poolError=P.pick('daily',3,{crime=false,employment=false},police,all,now,{},true,false)
+eq(empty,nil);eq(poolError,'no_candidates','never fall back to excluded quests')
+P.disabled={}
 print(('selection: %d assertions passed'):format(count))

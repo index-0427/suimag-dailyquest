@@ -91,3 +91,21 @@ CREATE TABLE IF NOT EXISTS suimag_dailyquest_automation (
 ALTER TABLE suimag_dailyquest_progress
     ADD COLUMN IF NOT EXISTS reward_coin VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
     ADD COLUMN IF NOT EXISTS reward_coin_amount TINYINT UNSIGNED NOT NULL DEFAULT 0;
+
+
+-- Validation records are separate from assignments and can never be claimed.
+CREATE TABLE IF NOT EXISTS suimag_dailyquest_debug_progress (
+    citizenid VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    quest_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    target INT UNSIGNED NOT NULL,
+    progress INT UNSIGNED NOT NULL DEFAULT 0,
+    last_day BIGINT UNSIGNED NULL,
+    updated_at BIGINT UNSIGNED NULL,
+    PRIMARY KEY (citizenid, quest_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS suimag_dailyquest_pool (
+    quest_id VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+    enabled TINYINT UNSIGNED NOT NULL DEFAULT 1,
+    PRIMARY KEY (quest_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

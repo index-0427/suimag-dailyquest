@@ -6,6 +6,7 @@ dofile('server/selection.lua')
 dofile('server/boards.lua')
 dofile('server/bonuses.lua')
 dofile('server/settlement.lua')
+dofile('server/debug.lua')
 -- Test-only insertion helper for unassigned and pre-existing fixture rows.
 local fixtureSql={ensure=[[INSERT INTO suimag_dailyquest_progress
     (citizenid, quest_id, period_kind, period_start, ends_at, target, reward_type, reward_amount)
@@ -146,6 +147,27 @@ plan('board_open_rewards',function()
     realOpen('DRAW',now,assignments)
 end)
 plan('board_open_rewards_next_day',function() realOpen('DRAW',now+86400,{}) end)
+-- Debug uses the actual measurement code, without any production assignment.
+local debugSession={citizenid='SQLDEBUG'}
+local savedTime=os.time
+os.time=function() return now end
+local debugTimer=1000
+GetGameTimer=function() return debugTimer end
+plan('debug_start',function() assert(DQDebug.start(debugSession,function() return true end)) end)
+DQDebug.sample(debugSession,{ped=1,vehicle=0,bucket=0,x=0,y=0,z=30,mode='walk',alive=true,duty=true,job='police',wall=now,timer=1000})
+DQDebug.sample(debugSession,{ped=1,vehicle=0,bucket=0,x=25,y=0,z=30,mode='walk',alive=true,duty=true,job='police',wall=now+5,timer=6000})
+debugTimer=16000
+plan('debug_tick',function() DQDebug.flush(debugSession,now+15) end)
+plan('debug_consume',function() DQStore.consume('SQLDEBUG',now+15,true) end)
+plan('debug_signal',function() DQStore.signal('SQLDEBUG','bus',now+15,true) end)
+plan('debug_duplicate',function() DQStore.signal('SQLDEBUG','bus',now+16,true) end)
+plan('debug_reset',function() DQDebug.reset(debugSession,'daily_bus') end)
+plan('debug_reset_all',function() DQDebug.reset(debugSession) end)
+plan('debug_pool',function() DQDebug.setPool('daily_bus',false) end)
+debugSession.debug=nil
+plans.debug_stopped={}
+plan('debug_stopped',function() DQDebug.flush(debugSession,now+30) end)
+os.time=savedTime
 local boardMeta={daily=selectedDaily,weekly=selectedWeekly,dailyReplacement=replacementDaily,weeklyReplacement=replacementWeekly}
 local function encode(v)
     if type(v)=='number' then return tostring(v) end

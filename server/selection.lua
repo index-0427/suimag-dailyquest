@@ -1,5 +1,6 @@
 DQSelection = {}
 local P = DQSelection
+P.disabled = {}
 
 function P.preferences(value)
     if type(value) ~= 'table' or type(value.crime) ~= 'boolean' or type(value.employment) ~= 'boolean' then return nil end
@@ -8,7 +9,7 @@ function P.preferences(value)
 end
 
 function P.eligible(quest, prefs, data, state, now, reroll)
-    if not prefs then return false end
+    if not prefs or P.disabled[quest.id] then return false end
     for tag in pairs(quest.tags or {}) do if prefs[tag] then return false end end
     local job = data.job or {}
     local employed = DQ.identifier(job.name) and not Config.Tracking.excludedJobs[job.name]

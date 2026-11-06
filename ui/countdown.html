@@ -18,7 +18,7 @@
     <strong id="remaining">00:00:00</strong>
   </aside>
   <main id="quest-app" hidden role="dialog" aria-modal="true" aria-label="クエストボード">
-    <aside class="rail" aria-label="Flecity"><span class="brand">S<span>Q</span></span><span class="rail-mark" aria-hidden="true"></span><span class="rail-caption">FLECITY</span></aside>
+    <aside class="rail" aria-label="Flecity"><span class="brand">S<span>Q</span></span><span id="rail-mark" class="rail-mark" aria-hidden="true"></span><nav id="debug-nav" hidden aria-label="画面切替"><button id="board-tab" data-view="board" data-icon="compass" aria-label="クエスト" aria-pressed="true"><span>クエスト</span></button><button id="debug-tab" data-view="debug" data-icon="debug" aria-label="デバッグ" aria-pressed="false"><span>デバッグ</span></button></nav><span class="rail-caption">FLECITY</span></aside>
     <section class="workspace" tabindex="-1">
       <header><div class="heading-copy"><h1>クエストボード</h1><p class="header-description">街でのひとときを、達成と報酬に。</p></div><div class="header-actions"><button id="preferences" class="secondary-button" data-icon="settings">クエスト抽選設定</button><button id="close" class="icon-button" data-icon="close" aria-label="閉じる" title="閉じる（Esc）"></button></div></header>
       <p id="gui-status" class="status-message" role="status" aria-atomic="true"></p>
@@ -36,6 +36,20 @@
         <div id="quest-cards"></div>
         <footer><span>自分のペースで、ひとつずつ。</span><span><kbd>Esc</kbd> で閉じる</span></footer>
       </div>
+      <section id="debug-view" hidden aria-labelledby="debug-title">
+        <div class="debug-heading"><div><h2 id="debug-title" tabindex="-1">全クエストの検証</h2><p class="debug-intro">計測を開始して、実際にクエストの行動を試してください。未抽選・抽選除外のクエストも検証できます。</p></div><span class="debug-access">管理者限定</span></div>
+        <div class="debug-controls"><span id="debug-recording">計測停止中</span><button id="debug-toggle" class="action-button">計測を開始</button><button id="debug-refresh" class="secondary-button" data-icon="refresh">一覧を更新</button><button id="debug-reset-all" class="secondary-button">全件の進捗をリセット</button></div>
+        <p class="debug-help">検証結果から報酬は発生しません。通常クエストは通常どおり進行します。計測中は画面を閉じても継続します。再接続後は計測を再開してください。</p>
+        <p class="debug-help">抽選ON/OFFは全プレイヤー共通で保存され、次回抽選・リロールに反映します。提示済みのクエストは継続します。OFFにしすぎると候補不足になります。</p>
+        <p id="debug-feedback" role="status" aria-atomic="true"></p>
+        <div class="debug-list-toolbar">
+          <p id="debug-summary" class="debug-summary" role="status" aria-atomic="true"></p>
+          <label class="debug-filter" for="debug-filter">検証状態<select id="debug-filter"><option value="all">すべて</option><option value="idle">未検出</option><option value="moved">進捗あり</option><option value="done">達成</option></select></label>
+        </div>
+        <div class="debug-columns" aria-hidden="true"><span>クエスト / 判定元</span><span>検証状態</span><span>進捗 / 最終検出</span><span>抽選対象</span><span>リセット</span></div>
+        <div id="debug-rows"></div>
+        <p class="debug-help">未検出は「まだ進捗を確認できていない」状態です。結果はリセットまで保存します。参加日数は計測中の異なる日（JST 05:00区切り）に加算されます。</p>
+      </section>
       <form id="preferences-view" hidden aria-labelledby="preferences-title">
         <p class="eyebrow" id="preferences-kicker">遊び方に合わせて</p>
         <h2 id="preferences-title" tabindex="-1">クエスト抽選設定</h2>

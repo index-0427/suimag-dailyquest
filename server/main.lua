@@ -42,6 +42,7 @@ local function flushTime(session,now)
     local tracked=DQTracking.drain(session)
     if seconds and seconds>0 then DQStore.addTime(session.citizenid,now-seconds,now) end
     if #tracked>0 then DQStore.tracked(session.citizenid,tracked) end
+    if current(session.source,session) and DQDebug.active(session.source,session) then DQDebug.flush(session,now) end
 end
 
 local function maybeSettle(source,session,now)
@@ -66,7 +67,7 @@ local function run(source, fn, allowSetup, skipDraw)
     end
     local session = sessions[source]
     if not session or session.citizenid ~= citizenid then
-        session = { citizenid = citizenid, wall = os.time(), timer = GetGameTimer() }
+        session = { source=source, citizenid = citizenid, wall = os.time(), timer = GetGameTimer() }
         sessions[source] = session
     end
     -- Serialize all operations for a character, including activity signals and timer ticks.
@@ -79,6 +80,7 @@ local function run(source, fn, allowSetup, skipDraw)
     end
     if not current(source, session) then return { ok = false, error = 'player_unavailable' } end
     locks[citizenid] = true
+    DQDebug.active(source,session)
     local ok, result = xpcall(function()
         local now = os.time()
         local day = DQ.period('daily', now, Config.Reset).start
@@ -127,8 +129,8 @@ end
 function DQRuntime.signal(sourceId, expectedCitizenId, activity)
     return run(sourceId, function(session, now)
         if session.citizenid ~= expectedCitizenId then return { ok=false, error='player_unavailable' } end
-        DQStore.signal(session.citizenid, activity, now)
-    end)
+        DQStore.signal(session.citizenid, activity, now, DQDebug.active(sourceId,session))
+    end,sessions[sourceId] and DQDebug.active(sourceId,sessions[sourceId]))
 end
 local function rateLimit(source, action)
     local now = GetGameTimer()
@@ -141,7 +143,7 @@ end
 
 local function snapshot(source)
     return run(source, function(session, now)
-        if not session.preferences then return {ok=true,needsSetup=true,quests={}} end
+        if not session.preferences then return {ok=true,needsSetup=true,quests={},canDebug=DQDebug.allowed(source)} end
         local rows, quests = DQStore.list(session.citizenid, now), {}
         local bonusRow=DQStore.bonusState(session.citizenid,DQ.period('daily',now,Config.Reset).start)
         local bonus
@@ -189,7 +191,7 @@ local function snapshot(source)
             end
         end
         return {
-            ok=true,quests=quests,preferences=session.preferences,dailyBonus=bonus,
+            ok=true,quests=quests,preferences=session.preferences,dailyBonus=bonus,canDebug=DQDebug.allowed(source),
             drawError=session.drawError,
             rerolls={daily=session.boards.daily and 1-tonumber(session.boards.daily.rerolls_used) or 0,
                 weekly=session.boards.weekly and 1-tonumber(session.boards.weekly.rerolls_used) or 0},
@@ -340,6 +342,39 @@ lib.callback.register(prefix .. 'list', function(source)
     return snapshot(source)
 end)
 
+-- Every read and mutation checks authorization on the server, including direct callback calls.
+lib.callback.register(prefix..'debug',function(source,action,id,enabled)
+    if not DQDebug.allowed(source) then return {ok=false,error='forbidden'} end
+    if not rateLimit(source,'debug') then return {ok=false,error='rate_limited'} end
+    if action~='list' and action~='start' and action~='stop' and action~='reset' and action~='pool' then
+        return {ok=false,error='invalid_request'}
+    end
+    if (action=='pool' or action=='reset' and id~=nil) and (type(id)~='string' or not definitions[id]) then
+        return {ok=false,error='invalid_request'}
+    end
+    if action=='pool' and type(enabled)~='boolean' then return {ok=false,error='invalid_request'} end
+    return run(source,function(session,now)
+        local function valid() return current(source,session) and DQDebug.allowed(source) end
+        if not valid() then return {ok=false,error='forbidden'} end
+        DQDebug.flush(session,now)
+        if not valid() then session.debug=nil;return {ok=false,error='forbidden'} end
+        if action=='start' then
+            if not DQDebug.start(session,valid) then return {ok=false,error='forbidden'} end
+            DQDebug.flush(session,os.time())
+        elseif action=='stop' then session.debug=nil
+        elseif action=='reset' then DQDebug.reset(session,id)
+        elseif action=='pool' then
+            local ok,err=DQDebug.setPool(id,enabled)
+            if not ok then return {ok=false,error=err} end
+            log(('Quest pool %s = %s by %s'):format(id,tostring(enabled),session.citizenid))
+        end
+        if not valid() then session.debug=nil;return {ok=false,error='forbidden'} end
+        local result=DQDebug.snapshot(session)
+        if not valid() then session.debug=nil;return {ok=false,error='forbidden'} end
+        return result
+    end,true,true)
+end)
+
 lib.callback.register(prefix .. 'claim', function(source, questId, periodStart)
     if not rateLimit(source, 'claim') then return { ok = false, error = 'rate_limited' } end
     return claim(source, questId, periodStart)
@@ -386,8 +421,8 @@ AddEventHandler('ox_inventory:usedItem', function(sourceId, itemName)
     if previous and now >= previous and now - previous < Config.ConsumeCooldownSeconds * 1000 then return end
     consumption[sourceId] = now
     run(sourceId, function(session, timestamp)
-        DQStore.consume(session.citizenid, timestamp)
-    end)
+        DQStore.consume(session.citizenid, timestamp, DQDebug.active(sourceId,session))
+    end,sessions[sourceId] and DQDebug.active(sourceId,sessions[sourceId]))
 end)
 
 local function unload(sourceId)
@@ -446,7 +481,7 @@ CreateThread(function()
                 local sourceId = tonumber(id)
                 run(sourceId, function(session, now)
                     flushTime(session,now)
-                end)
+                end,sessions[sourceId] and DQDebug.active(sourceId,sessions[sourceId]))
             end
         end
     end
@@ -461,7 +496,9 @@ CreateThread(function()
                     local player = exports.qbx_core:GetPlayer(sourceId)
                     if player and player.PlayerData.citizenid == session.citizenid then
                         local ok, frame = pcall(DQTracking.frame, sourceId, player.PlayerData)
-                        if ok then DQTracking.sample(session, frame)
+                        if ok then
+                            DQTracking.sample(session, frame)
+                            if not locks[session.citizenid] and DQDebug.active(sourceId,session) then DQDebug.sample(session,frame) end
                         else session.tracking = nil; log('Tracking sample failed: ' .. tostring(frame)) end
                     else session.tracking = nil end
                 end

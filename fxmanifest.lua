@@ -17,6 +17,7 @@ server_scripts {
     'server/settlement.lua',
     'server/autoclaim.lua',
     'server/tracking.lua',
+    'server/debug.lua',
     'server/main.lua',
     'server/adapters.lua',
 }

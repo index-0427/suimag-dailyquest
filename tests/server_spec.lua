@@ -166,6 +166,10 @@ print=function(message) logs[#logs+1]=message end
 initFailures=1
 dofile('server/autoclaim.lua')
 TriggerClientEvent=function(...) notifications[#notifications+1]={...} end
+DQStore.sql={}
+local ace={}
+IsPlayerAceAllowed=function(id) return ace[tonumber(id)]==true end
+dofile('server/debug.lua')
 dofile('server/main.lua')
 local function resume(co)
     local ok,result=coroutine.resume(co);assert(ok,result);return result
@@ -640,4 +644,54 @@ eq(type(shortage.preferences),'table')
 advance(2)
 eq(callbacks['suimag-dailyquest:preferences'](10,{crime=false,employment=false}).ok,true,'settings save without a pre-save draw')
 DQStore.boardState=oldState
+-- Debug authorization is enforced even for callers bypassing the GUI.
+local debugQueries={}
+MySQL.transaction={await=function(queries)
+    for _,q in ipairs(queries) do debugQueries[#debugQueries+1]=q end
+    hook('debugTransaction');return true
+end}
+MySQL.update={await=function(query,values) debugQueries[#debugQueries+1]={query=query,values=values};return 1 end}
+MySQL.query={await=function() hook('debugRead');return {} end}
+local function debugCall(id,action,quest,enabled)
+    advance(2);return callbacks['suimag-dailyquest:debug'](id,action,quest,enabled)
+end
+player(50,'DEBUG');preferences.DEBUG=false
+local beforeDebug=#debugQueries
+for _,op in ipairs({'list','start','stop','reset','pool'}) do eq(debugCall(50,op,'daily_bus',false).error,'forbidden') end
+eq(#debugQueries,beforeDebug,'denied operations never touch storage')
+eq(list(50).canDebug,false)
+ace[50]=true
+eq(list(50).canDebug,true)
+local moneyBefore=#payments
+local diagnostic=debugCall(50,'start')
+eq(diagnostic.ok,true);eq(diagnostic.enabled,true);eq(#diagnostic.quests,#Config.Quests)
+eq(#payments,moneyBefore,'debug cannot pay rewards')
+eq(debugCall(50,'pool','daily_bus',false).ok,true);eq(DQSelection.disabled.daily_bus,true)
+eq(debugCall(50,'pool','daily_bus',true).ok,true);eq(DQSelection.disabled.daily_bus,nil)
+eq(debugCall(50,'pool','daily_bus',1).error,'invalid_request')
+eq(debugCall(50,'reset','unknown').error,'invalid_request')
+eq(debugCall(50,'progress','daily_bus',999).error,'invalid_request','no arbitrary increment endpoint')
+eq(debugCall(50,'reset','daily_bus').ok,true)
+local resetQuery=debugQueries[#debugQueries]
+eq(resetQuery.query,DQStore.sql.debugReset);eq(resetQuery.values[1],'DEBUG');eq(resetQuery.values[2],'daily_bus')
+eq(debugCall(50,'stop').enabled,false)
+hooks.debugRead=function() ace[50]=false end
+eq(debugCall(50,'list').error,'forbidden','permission revoked during storage read')
+hooks.debugRead=nil
+-- Admin job works without ACE, even off duty; removing both permissions stops diagnostics.
+players[50].PlayerData.job={name='admin',onduty=false}
+eq(list(50).canDebug,true,'admin job grants access without ACE')
+eq(debugCall(50,'start').enabled,true)
+players[50].PlayerData.job.name='police'
+eq(list(50).canDebug,false,'non-admin job without ACE loses access')
+eq(debugCall(50,'list').error,'forbidden')
+ace[50]=true
+eq(debugCall(50,'list').enabled,false,'ACE grants access for other jobs; revoked measurement stays stopped')
+hooks.debugTransaction=function() player(50,'DEBUG_REPLACEMENT') end
+eq(debugCall(50,'start').error,'forbidden','character switch during start cannot enable measurement')
+hooks.debugTransaction=nil
+-- Persisted pool exclusions are restored before the server becomes ready.
+MySQL.query.await=function(query) return query==DQStore.sql.poolList and {{quest_id='daily_bus',enabled=0}} or {} end
+DQDebug.init();eq(DQSelection.disabled.daily_bus,true)
+DQSelection.disabled={}
 io.write(('server: %d assertions passed\n'):format(count))

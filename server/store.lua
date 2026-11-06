@@ -63,6 +63,7 @@ function S.init()
     MySQL.query.await('SELECT id, citizenid, quest_id, period_kind, period_start, ends_at, target, progress, reward_type, reward_amount, reward_coin, reward_coin_amount, status, attempted_at, claimed_at FROM suimag_dailyquest_progress LIMIT 0')
     MySQL.query.await('SELECT citizenid, day_start FROM suimag_dailyquest_visits LIMIT 0')
     S.initSettlement()
+    DQDebug.init()
 end
 
 function S.open(citizenid, now, assignments)
@@ -94,13 +95,14 @@ function S.addTime(citizenid, from, to)
     transact(queries)
 end
 
-function S.consume(citizenid, now)
+function S.consume(citizenid, now, debugEnabled)
     local queries = {}
     for _, quest in ipairs(Config.Quests) do
         if quest.metric == 'consume' then
             queries[#queries + 1] = query('advance', { 1, citizenid, quest.id, DQ.period(quest.period, now, Config.Reset).start })
         end
     end
+    if debugEnabled then DQDebug.eventQueries(queries,citizenid,'consume',nil,now) end
     transact(queries)
 end
 
@@ -131,7 +133,7 @@ end
 -- Legacy notifications carry no immutable completion ID. Persist a rolling cooldown,
 -- and acquire an exclusive gate lock before touching any progress rows.
 local signalSequence = 0
-function S.signal(citizenid, activity, now)
+function S.signal(citizenid, activity, now, debugEnabled)
     signalSequence = signalSequence + 1
     local token = assert(S.bootId, 'Missing signal boot ID') .. '-' .. signalSequence
     local rule = Config.Activities[activity]
@@ -147,6 +149,7 @@ function S.signal(citizenid, activity, now)
             })
         end
     end
+    if debugEnabled then DQDebug.eventQueries(queries,citizenid,'activity',activity,now,token) end
     queries[#queries + 1] = query('gateDone', { citizenid, activity, token })
     transact(queries)
 end

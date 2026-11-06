@@ -38,7 +38,7 @@ OneSync有効環境で使用します。必要なリソース: `oxmysql` / `ox_l
 
 1. リポジトリをリソースディレクトリに配置します。フォルダ名は任意です。以下は `suimag-dailyquest` を例にしています。単一インスタンスで利用します。
 2. 依存リソース・カテゴリ起動の後に下記を設定します。同じ依存の ensure を追加する必要はありません。
-3. 起動時に `sql/schema.sql` の専用8テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
+3. 起動時に `sql/schema.sql` の専用10テーブルを自動作成します。自動作成しない運用では管理者が先にSQLを実行し、`Config.AutoCreateTables = false` にします。
 4. コンソールの `Ready. Command: /dailyquest` と、ゲーム内で `/dailyquest` を確認します。
 
 ```cfg
@@ -85,6 +85,10 @@ Config.Rewards = {
 タイトル・説明・飲食対象の変更は即時反映されるため、進行中の条件と食い違わないようにします。
 削除したクエストは表示・受取対象から外れますが、保存記録は残ります。
 
+現在のジョブが `admin`、または `Config.DebugAce`（初期値 `admin`）のACEが許可されていると、左側のデバッグから全クエストの進捗検証・リセットと、
+サーバー共通の抽選ON/OFFを操作できます。[使い方](docs/gui.md#管理者向けデバッグ)を参照してください。
+この追加では検証用進捗と抽選設定の2テーブルが必要です。自動作成が無効なら `sql/schema.sql` を再適用してください。
+
 ## ジョブ連携
 
 13の連携元が発火するサーバー内の完了通知を `server/adapters.lua` で受信します。
@@ -105,8 +109,8 @@ exports['suimag-dailyquest']:OpenQuests()
 
 ## 保存と障害時の扱い
 
-専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_signal_gates`、`suimag_dailyquest_preferences`、`suimag_dailyquest_boards`、`suimag_dailyquest_assignments`、`suimag_dailyquest_bonuses`、`suimag_dailyquest_automation` です。
-既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの8テーブルもバックアップしてください。
+専用テーブルは `suimag_dailyquest_progress`、`suimag_dailyquest_visits`、`suimag_dailyquest_signal_gates`、`suimag_dailyquest_preferences`、`suimag_dailyquest_boards`、`suimag_dailyquest_assignments`、`suimag_dailyquest_bonuses`、`suimag_dailyquest_automation`、`suimag_dailyquest_debug_progress`、`suimag_dailyquest_pool` です。
+既存のQbox・バトルパスのテーブルは変更しません。自動削除はなく、移転時はこの10テーブルもバックアップしてください。
 
 接続時間は約15秒ごとに保存します。切断・正常停止・強制終了で最後の未保存区間を失う場合があります。
 DB障害で結果不明の時間加算は再送しません。長いサーバーストールや時計の大幅な変化中の時間も加算しません。

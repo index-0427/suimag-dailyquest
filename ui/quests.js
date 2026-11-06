@@ -5,8 +5,11 @@
   let board, period = 'daily', pending = false, busy = false;
   let activeAction, busyKind, savedFocus, session = 0;
   let editingPreferences = false, savingPreferences = false;
+  let debugBoard = null, debugVisible = false, debugWaiting = false;
   const pendingHelp = '報酬の確認が必要です。管理者へお問い合わせください。';
   const loadingLabels = {
+    debug: ['処理中…', '検証データを更新しています…'],
+    debugView: ['読込中…', '全クエストの検証データを読み込んでいます…'],
     claim: ['受取中…', 'クエスト報酬を受け取っています…'],
     bonus: ['受取中…', '全クリア報酬を受け取っています…'],
     refresh: ['更新中…', 'クエストの進捗を更新しています…'],
@@ -17,36 +20,41 @@
   function readFocus() {
     const el = document.activeElement;
     if (!app.contains(el) || !focusKey(el)) return null;
-    const heading = el.closest('.quest-card, #bonus')?.querySelector('h3');
-    return { key: focusKey(el), fallback: heading ? focusKey(heading) : editingPreferences ? 'preferences-title' : 'section-title' };
+    const heading = el.closest('.quest-card, #bonus, .debug-row')?.querySelector('h3');
+    return { key: focusKey(el), fallback: heading ? focusKey(heading) : debugVisible ? 'debug-title' : editingPreferences ? 'preferences-title' : 'section-title' };
   }
   function restoreFocus() {
-    if (!savedFocus || busy || pending || savingPreferences || app.hidden) return;
+    if (!savedFocus || busy || pending || savingPreferences || debugWaiting || app.hidden) return;
     const snapshot = savedFocus;
     savedFocus = null;
     // A user may have moved to another tab or Close while the request was running.
     if (app.contains(document.activeElement) && document.activeElement.getClientRects().length && !document.activeElement.matches(':disabled')) return;
-    const targets = Array.from(app.querySelectorAll('button, input, [tabindex]'));
+    const targets = Array.from(app.querySelectorAll('button, input, select, [tabindex]'));
     const find = key => targets.find(el => focusKey(el) === key && !el.matches(':disabled') && el.getClientRects().length);
-    const target = find(snapshot.key) || find(snapshot.fallback) || $(editingPreferences ? 'preferences-title' : 'section-title');
+    const target = find(snapshot.key) || find(snapshot.fallback) || $(debugVisible ? 'debug-title' : editingPreferences ? 'preferences-title' : 'section-title');
     target.focus({ preventScroll: true });
     const bounds = target.getBoundingClientRect(), viewport = app.querySelector('.workspace').getBoundingClientRect();
     if (bounds.top < viewport.top + 4 || bounds.bottom > viewport.bottom - 4) target.scrollIntoView({ block: 'nearest' });
   }
   function updateBusy() {
-    const loading = busy || pending || savingPreferences;
-    const kind = savingPreferences ? 'preferences' : busy ? busyKind : pending ? activeAction?.kind : null;
+    const loading = busy || pending || savingPreferences || debugWaiting;
+    const kind = savingPreferences ? 'preferences' : busy ? busyKind : pending || debugWaiting ? activeAction?.kind : null;
     const labels = loadingLabels[kind] || loadingLabels.refresh;
     // Keep the live status outside the busy content so it can be announced immediately.
     $('quest-cards').setAttribute('aria-busy', String(loading));
     $('bonus').setAttribute('aria-busy', String(loading));
+    $('debug-rows').setAttribute('aria-busy', String(loading));
+    $('debug-rows').querySelectorAll('input').forEach(el => {
+      if (loading && el === document.activeElement) savedFocus = readFocus();
+      el.disabled = loading;
+    });
     $('gui-status').textContent = loading ? labels[1] : '';
     const sourceKey = kind === 'preferences' ? 'preferences-save' : kind === activeAction?.kind ? activeAction.key : kind === 'refresh' ? 'refresh' : null;
     if (loading && document.activeElement.matches('#preferences-fields input')) savedFocus = readFocus();
     $('preferences-fields').disabled = loading;
     $('preferences-fields').setAttribute('aria-busy', String(loading));
     $('preferences-save').dataset.label = board?.needsSetup ? 'この設定でクエストを始める' : '設定を保存';
-    app.querySelectorAll('button:not(#close):not([data-period])').forEach(el => {
+    app.querySelectorAll('button:not(#close):not([data-period]):not([data-view])').forEach(el => {
       if (loading && el === document.activeElement) savedFocus = readFocus();
       el.disabled = loading;
       if (!el.dataset.label) el.dataset.label = el.textContent;
@@ -56,19 +64,20 @@
   }
   async function action(action, extra = {}, source) {
     const closing = action === 'close';
-    if (!closing && (pending || busy || savingPreferences)) return;
+    if (!closing && (pending || busy || savingPreferences || debugWaiting)) return;
     const epoch = session;
     if (!closing) {
       activeAction = { kind: action, key: source ? focusKey(source) : action };
       pending = true;
       if (action === 'preferences') savingPreferences = true;
+      if (action === 'debug' || action === 'debugView' && extra.visible) debugWaiting = true;
     }
     updateBusy();
     $('gui-error').textContent = '';
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10000);
     try {
-      if (typeof GetParentResourceName !== 'function') return;
+      if (typeof GetParentResourceName !== 'function') { debugWaiting = false; return; }
       const response = await fetch(`https://${GetParentResourceName()}/questAction`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, period, ...extra }), signal: controller.signal
@@ -76,7 +85,7 @@
       if (!response.ok) throw new Error('request');
     } catch (_) {
       if (epoch === session) {
-        savingPreferences = false;
+        savingPreferences = debugWaiting = false;
         $('gui-error').textContent = '通信に失敗しました。少し待って再度お試しください。';
       }
     } finally {
@@ -108,6 +117,7 @@
   }
   function showPreferences() {
     if (busy || pending || savingPreferences) return;
+    if (debugVisible) return;
     editingPreferences = true;
     const prefs = board.preferences || { crime: true, employment: false };
     $('exclude-crime').checked = prefs.crime === true;
@@ -129,7 +139,7 @@
     editingPreferences = false;
     $('preferences-view').hidden = true;
     $('board-view').hidden = false;
-    $('preferences').hidden = editingPreferences || board.needsSetup === true;
+    $('preferences').hidden = debugVisible || editingPreferences || board.needsSetup === true;
     $('gui-error').textContent = '';
     savedFocus = { key: 'preferences', fallback: 'section-title' };
     updateBusy();
@@ -140,10 +150,68 @@
     if (board.needsSetup) action('close');
     else showBoard();
   }
+  function switchView(showDebug) {
+    if (showDebug && board?.canDebug !== true) return;
+    debugVisible = showDebug;
+    editingPreferences = false;
+    $('preferences-view').hidden = true;
+    $('board-view').hidden = showDebug;
+    $('debug-view').hidden = !showDebug;
+    $('preferences').hidden = showDebug || board?.needsSetup === true;
+    $('board-tab').setAttribute('aria-pressed', String(!showDebug));
+    $('debug-tab').setAttribute('aria-pressed', String(showDebug));
+    $('gui-error').textContent = '';
+    if (showDebug) { renderDebug(); $('debug-title').focus(); }
+    else if (board.needsSetup) showPreferences();
+    else $('section-title').focus();
+    action('debugView', { visible: showDebug }, $(showDebug ? 'debug-tab' : 'board-tab'));
+  }
+  function debugState(quest) { return quest.value >= quest.target ? 'done' : quest.value > 0 ? 'moved' : 'idle'; }
+  function renderDebug() {
+    const focus = readFocus() || savedFocus;
+    const quests = Array.isArray(debugBoard?.quests) ? debugBoard.quests : [];
+    const filter = $('debug-filter').value;
+    const visibleQuests = quests.filter(q => filter === 'all' || debugState(q) === filter);
+    const running = debugBoard?.enabled === true;
+    $('debug-recording').textContent = running ? '計測中' : '計測停止中';
+    $('debug-recording').classList.toggle('recording', running);
+    $('debug-toggle').dataset.label = running ? '計測を停止' : '計測を開始';
+    $('debug-summary').textContent = `${quests.length}件中 ${quests.filter(q => q.value > 0).length}件で進捗を検出 / ${quests.filter(q => q.value >= q.target).length}件達成 / 表示 ${visibleQuests.length}件`;
+    const rows = $('debug-rows'); rows.replaceChildren();
+    const metrics = { attendance: '街への参加', playtime: '接続時間', consume: '飲食アイテム使用', duty: '勤務時間', distance: '移動距離', activity: '仕事・活動の完了通知' };
+    visibleQuests.forEach(q => {
+      const row = node('article', 'debug-row'); row.dataset.id = q.id;
+      const identity = node('div', 'debug-identity'), title = node('h3', '', q.title);
+      title.tabIndex = -1; title.dataset.focusKey = `debug:${q.id}`;
+      identity.append(node('span', 'debug-period-label', q.period === 'daily' ? 'デイリー' : 'ウィークリー'), title,
+        node('p', 'debug-description', q.description), node('p', 'debug-source', `${q.id} / ${q.source || metrics[q.metric] || q.metric}`));
+      if (q.available === false) identity.append(node('p', 'debug-unavailable', '連携元が未起動'));
+      const state = debugState(q);
+      const status = node('span', 'debug-state', { done: '達成', moved: '進捗あり', idle: '未検出' }[state]);
+      status.dataset.state = state;
+      const progress = node('div', 'debug-progress');
+      progress.append(node('strong', '', `${q.value} / ${q.target} ${q.unit || ''}`),
+        node('span', '', q.updatedAt ? new Date(q.updatedAt * 1000).toLocaleString('ja-JP') : '検出記録なし'));
+      const pool = node('label', 'debug-pool'), input = document.createElement('input');
+      input.type = 'checkbox'; input.checked = q.enabled !== false; input.setAttribute('role', 'switch');
+      input.dataset.focusKey = `debug:${q.id}:pool`; input.setAttribute('aria-label', `${q.title}を抽選に含める`);
+      input.onchange = () => { const enabled = input.checked; input.checked = q.enabled !== false; action('debug', { operation: 'pool', id: q.id, enabled }, input); };
+      pool.append(input, node('span', '', q.enabled === false ? 'OFF' : 'ON'));
+      const reset = button('リセット', 'debug', { operation: 'reset', id: q.id }, 'secondary-button');
+      reset.dataset.focusKey = `debug:${q.id}:reset`; reset.setAttribute('aria-label', `${q.title}の検証用進捗をリセット`);
+      row.append(identity, status, progress, pool, reset); rows.append(row);
+    });
+    if (!visibleQuests.length) rows.append(node('p', 'empty-state', quests.length ? 'この検証状態のクエストはありません。' : '「一覧を更新」で検証データを取得できます。'));
+    savedFocus = focus; updateBusy();
+  }
   function render() {
     if (!board) return;
     const focus = readFocus() || savedFocus;
     const daily = period === 'daily';
+    app.dataset.canDebug = String(board.canDebug === true);
+    $('debug-nav').hidden = board.canDebug !== true;
+    $('rail-mark').hidden = board.canDebug === true;
+    if (board.canDebug !== true) { debugVisible = false; debugBoard = null; $('debug-view').hidden = true; $('board-view').hidden = editingPreferences; }
     app.dataset.activePeriod = period;
     const quests = (Array.isArray(board.quests) ? board.quests : []).filter(q => q.period === period);
     const completed = quests.filter(q => q.value >= q.target).length;
@@ -153,7 +221,7 @@
     $('section-title').textContent = board.needsSetup ? 'あなたに合った挑戦を。' : daily ? '今日のチャレンジ' : '今週のチャレンジ';
     $('completion').textContent = `${completed} / ${quests.length}件 達成`;
     $('completion').hidden = board.needsSetup === true;
-    $('preferences').hidden = editingPreferences || board.needsSetup === true;
+    $('preferences').hidden = debugVisible || editingPreferences || board.needsSetup === true;
     $('refresh').hidden = board.needsSetup === true;
     $('board-note').textContent = board.needsSetup ? '抽選設定から、犯罪・職業条件の除外を選んでスタートしましょう。' : board.drawError ? '抽選候補が不足しています。抽選設定や連携元の状態を確認してください。' : `リロール残り ${(board.rerolls || {})[period] || 0}回 · 未達成のクエストを1件交換できます。`;
     const cards = $('quest-cards'); cards.replaceChildren();
@@ -225,10 +293,29 @@
   }
   window.addEventListener('message', ({ data }) => {
     if (!data) return;
+    if (data.action === 'suimag-dailyquest:debugResult') {
+      if (app.hidden) return;
+      debugWaiting = false;
+      if (data.ok) {
+        debugBoard = data.data;
+        const messages = { start: '計測を開始しました。実際の行動で全クエストを検証できます。', stop: '計測を停止しました。結果は保存されています。', reset: '検証用進捗をリセットしました。', pool: '抽選対象を保存しました。次回抽選・リロールから反映されます。' };
+        if (messages[data.operation]) $('debug-feedback').textContent = messages[data.operation];
+        renderDebug();
+      } else {
+        if (data.forbidden) {
+          board.canDebug = false; debugBoard = null; debugVisible = false;
+          $('debug-view').hidden = true; $('board-view').hidden = false; render();
+          $('section-title').focus();
+        }
+        $('gui-error').textContent = data.message || '検証データを取得できませんでした。「一覧を更新」で再試行してください。';
+        updateBusy();
+      }
+      return;
+    }
     if (data.action === 'suimag-dailyquest:busy') {
       if (app.hidden) return;
       busy = data.busy === true;
-      busyKind = ({ list: 'refresh', claimBonus: 'bonus', claim: 'claim', preferences: 'preferences', reroll: 'reroll' })[data.operation] || 'refresh';
+      busyKind = ({ list: 'refresh', claimBonus: 'bonus', claim: 'claim', preferences: 'preferences', reroll: 'reroll', debug: 'debug' })[data.operation] || 'refresh';
       updateBusy(); return;
     }
     if (data.action === 'suimag-dailyquest:preferencesResult') {
@@ -244,13 +331,16 @@
     app.hidden = data.visible !== true;
     busy = false;
     if (app.hidden) {
-      session++; pending = savingPreferences = editingPreferences = false; activeAction = busyKind = savedFocus = null;
+      session++; pending = savingPreferences = editingPreferences = debugWaiting = debugVisible = false; debugBoard = null; activeAction = busyKind = savedFocus = null;
       updateBusy(); return;
     }
     if (!app.hidden && data.data) {
       board = data.data; if (data.selected === 'weekly' || data.selected === 'daily') period = data.selected;
       render();
       if (wasHidden) {
+        $('debug-view').hidden = true;
+        $('debug-feedback').textContent = '';
+        $('board-tab').setAttribute('aria-pressed', 'true'); $('debug-tab').setAttribute('aria-pressed', 'false');
         showBoard();
         if (board.needsSetup) showPreferences();
         else $('close').focus();
@@ -262,6 +352,12 @@
     el.dataset.focusKey = `period:${el.dataset.period}`;
     el.onclick = () => { period = el.dataset.period; render(); };
   });
+  $('board-tab').onclick = () => { if (!busy && !pending && !savingPreferences && !debugWaiting) switchView(false); };
+  $('debug-tab').onclick = () => { if (!busy && !pending && !savingPreferences && !debugWaiting) switchView(true); };
+  $('debug-filter').onchange = renderDebug;
+  $('debug-toggle').onclick = () => action('debug', { operation: debugBoard?.enabled ? 'stop' : 'start' }, $('debug-toggle'));
+  $('debug-refresh').onclick = () => action('debug', { operation: 'list' }, $('debug-refresh'));
+  $('debug-reset-all').onclick = () => action('debug', { operation: 'reset' }, $('debug-reset-all'));
   $('close').onclick = () => action('close');
   $('refresh').onclick = () => action('refresh', {}, $('refresh'));
   $('preferences').onclick = showPreferences;
@@ -276,7 +372,7 @@
     if (app.hidden) return;
     if (e.key === 'Escape') { e.preventDefault(); if (editingPreferences) cancelPreferences(); else action('close'); }
     if (e.key === 'Tab') {
-      const buttons = Array.from(app.querySelectorAll('button:not(:disabled), input:not(:disabled)')).filter(el => el.getClientRects().length);
+      const buttons = Array.from(app.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled)')).filter(el => el.getClientRects().length);
       const first = buttons[0], last = buttons[buttons.length - 1];
       const active = document.activeElement;
       const direction = e.shiftKey ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING;

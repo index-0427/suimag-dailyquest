@@ -2,6 +2,8 @@ local prefix = 'suimag-dailyquest:'
 local busy, generation, lastList = false, 0, nil
 local open
 local guiData, guiVisible, guiReady
+local debugVisible, debugData = false, nil
+local lastDebugRequest
 local function guiHide()
     local wasVisible=guiVisible
     guiVisible=false
@@ -12,6 +14,7 @@ local countdown,overlayStamp
 local overlayVisible,nextRefresh=false,0
 
 local errors = {
+    forbidden = 'デバッグ権限がありません。Adminジョブ、または設定されたACE権限が必要です。',
     setup_required = '最初に抽選設定を保存してください。',
     no_candidates = '条件に合う交換候補がありません。リロール回数は消費していません。',
     reroll_used = 'この期間のリロールは使用済みです。',
@@ -42,12 +45,17 @@ end
 
 local function request(action, ...)
     local epoch = generation
+    if action=='debug' and lastDebugRequest then
+        local elapsed=GetGameTimer()-lastDebugRequest
+        if elapsed>=0 and elapsed<Config.RequestCooldownMs+100 then Wait(Config.RequestCooldownMs+100-elapsed) end
+    end
     if action == 'list' and lastList then
         local elapsed = GetGameTimer() - lastList
         if elapsed >= 0 and elapsed < Config.RequestCooldownMs + 100 then Wait(Config.RequestCooldownMs + 100 - elapsed) end
     end
     if epoch ~= generation then return { ok = false, error = 'cancelled' } end
     if action == 'list' then lastList = GetGameTimer() end
+    if action == 'debug' then lastDebugRequest = GetGameTimer() end
     if guiVisible then SendNUIMessage({action=prefix..'busy',busy=true,operation=action}) end
     local ok, result = pcall(lib.callback.await, prefix .. action, false, ...)
     if epoch ~= generation then return { ok = false, error = 'cancelled' } end
@@ -155,9 +163,31 @@ RegisterCommand(Config.Command, function() open() end, false)
 if Config.Key then RegisterKeyMapping(Config.Command, 'デイリー / ウィークリークエスト', 'keyboard', Config.Key) end
 exports('OpenQuests', function() CreateThread(function() open() end) end)
 
+local function debugRequest(operation,id,enabled)
+    if busy or not guiData then return end
+    if guiData.canDebug~=true then
+        SendNUIMessage({action=prefix..'debugResult',ok=false,forbidden=true,message=errors.forbidden})
+        return
+    end
+    local token={}
+    busy=token
+    local result=request('debug',operation,id,enabled)
+    if busy==token then busy=false end
+    if result.error=='cancelled' then return end
+    if result.ok then debugData=result end
+    if result.error=='forbidden' then
+        guiData.canDebug=false
+        debugVisible,debugData=false,nil
+    end
+    SendNUIMessage({action=prefix..'debugResult',ok=result.ok==true,data=result.ok and result or nil,
+        forbidden=result.error=='forbidden',operation=operation,
+        message=not result.ok and (errors[result.error] or errors.unavailable) or nil})
+end
+
 local function close()
     guiHide()
     guiData=nil
+    debugVisible,debugData=false,nil
     generation = generation + 1
     local operation=busy
     busy=false
@@ -171,13 +201,25 @@ RegisterNUICallback('questAction',function(data,cb)
     cb({ok=true})
     if type(data)~='table' or not guiVisible then return end
     if data.action=='close' then close(); return end
+    if data.action=='debugView' and data.visible~=true then debugVisible=false;return end
     if busy or not guiData then
         if data.action=='preferences' then
             SendNUIMessage({action=prefix..'preferencesResult',ok=false,message=errors.busy})
+        elseif data.action=='debug' or data.action=='debugView' then
+            SendNUIMessage({action=prefix..'debugResult',ok=false,message=errors.busy})
         end
         return
     end
-    if data.action=='refresh' then open(data.period=='weekly' and 'weekly' or 'daily')
+    if data.action=='debugView' then
+        debugVisible=data.visible==true and guiData.canDebug==true
+        debugRequest('list')
+    elseif data.action=='debug' then
+        if not debugVisible then return end
+        local operation=data.operation
+        if operation=='list' or operation=='start' or operation=='stop' or operation=='reset' or operation=='pool' then
+            debugRequest(operation,data.id,data.enabled)
+        end
+    elseif data.action=='refresh' then open(data.period=='weekly' and 'weekly' or 'daily')
     elseif data.action=='preferences' then configure(data.preferences)
     elseif data.action=='bonus' then
         if guiData.dailyBonus and guiData.dailyBonus.canClaim then receiveBonus(guiData.dailyBonus) end
@@ -204,6 +246,7 @@ RegisterNUICallback('questReady',function(_,cb)
     if guiVisible and guiData then
         SendNUIMessage({action=prefix..'gui',visible=true,data=guiData})
         SetNuiFocus(true,true)
+        if debugVisible and debugData then SendNUIMessage({action=prefix..'debugResult',ok=true,data=debugData}) end
     end
     cb({})
 end)

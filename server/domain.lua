@@ -12,6 +12,7 @@ end
 
 function DQ.validate(config)
     assert(DQ.identifier(config.Command), 'Invalid command')
+    assert(type(config.DebugAce)=='string' and #config.DebugAce>0 and #config.DebugAce<=128, 'Invalid debug ACE')
     assert(config.Key == nil or type(config.Key) == 'string', 'Invalid key')
     assert(DQ.integer(config.TickSeconds, 5, 60), 'TickSeconds must be 5..60')
     assert(type(config.AutoClaim)=='table' and DQ.integer(config.AutoClaim.intervalSeconds,5,300), 'Invalid auto-claim interval')

@@ -3,6 +3,8 @@ Config = {}
 Config.Command = 'dailyquest'
 -- F10でクエスト画面を開く。キー割り当てを無効にする場合は nil。
 Config.Key = 'F10'
+-- Adminジョブ以外でもデバッグを利用できるACE。サーバーの権限設定に合わせて変更可能。
+Config.DebugAce = 'admin'
 Config.Reset = { offsetMinutes = 540, hour = 5, weekDay = 1 } -- JST / 月曜=1、日曜=7
 Config.TickSeconds = 15
 Config.AutoClaim = { intervalSeconds=30, batchSize=25 }
