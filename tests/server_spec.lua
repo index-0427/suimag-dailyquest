@@ -151,6 +151,7 @@ local coins={}
 exports.ox_inventory={
     Items=function(_,name)
         if hooks.missingItem then return nil end
+        if name=='fle_token' then return {label='FLEトークン'} end
         if name=='black_coin' or name=='white_coin' then return {label=name=='black_coin' and '黒コイン' or '白コイン'} end
     end,
     CanCarryItem=function() hook('capacity');return not hooks.full end,
@@ -384,7 +385,7 @@ local function makeBonus(cid,completed)
     local p=DQ.period('daily',now,Config.Reset)
     local row={id=bonusId,citizenid=cid,period_start=p.start,ends_at=p.finish,
         required_count=3,assigned_count=3,completed_count=completed,status='active',
-        reward_type='bank',reward_amount=200000}
+        reward_type='bank',reward_amount=200000,reward_coin='fle_token',reward_coin_amount=1}
     bonusRecords[cid]=row
     return row
 end
@@ -411,11 +412,22 @@ player(11,'BONUS');local b=makeBonus('BONUS',2)
 eq(list(11).dailyBonus.canClaim,false)
 before=#payments;eq(claimBonus(11).error,'incomplete');eq(#payments,before)
 b.completed_count=3;eq(list(11).dailyBonus.canClaim,true)
+eq(list(11).dailyBonus.reward:find('FLEトークン × 1',1,true)~=nil,true)
 eq(claimBonus(11).ok,true);eq(payments[#payments].amount,200000)
+eq(coins[#coins].name,'fle_token');eq(coins[#coins].amount,1)
 eq(payments[#payments].reason,'dailyquest:bonus:'..b.id)
 before=#payments;eq(claimBonus(11).error,'claimed');eq(#payments,before)
 eq(claimBonus(11,0).error,'expired')
 advance(2);eq(callbacks['suimag-dailyquest:claimBonus'](11,0/0).error,'invalid_request')
+-- Token failures preserve all-clear claim safety.
+player(16,'BONUS_TOKEN');local tokenBonus=makeBonus('BONUS_TOKEN',3)
+local tokenMoney,tokenCoins=#payments,#coins
+hooks.missingItem=true;eq(claimBonus(16).error,'invalid_item');hooks.missingItem=nil
+hooks.full=true;eq(claimBonus(16).error,'inventory_full');hooks.full=nil
+eq(tokenBonus.status,'active');eq(#payments,tokenMoney);eq(#coins,tokenCoins)
+hooks.coinReject=true;eq(claimBonus(16).error,'pending');hooks.coinReject=nil
+eq(tokenBonus.status,'pending');eq(#payments,tokenMoney+1);eq(#coins,tokenCoins)
+eq(claimBonus(16).error,'pending');eq(#payments,tokenMoney+1)
 -- Per-quest and all-clear totals: 3 x 150,000 + 200,000; 2 x 500,000 weekly.
 player(12,'TOTALS');list(12);makeBonus('TOTALS',3)
 local firstPayment=#payments

@@ -109,3 +109,8 @@ CREATE TABLE IF NOT EXISTS suimag_dailyquest_pool (
     enabled TINYINT UNSIGNED NOT NULL DEFAULT 1,
     PRIMARY KEY (quest_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Existing installations retain the saved entitlement for pending and claimed bonuses.
+ALTER TABLE suimag_dailyquest_bonuses
+    ADD COLUMN IF NOT EXISTS reward_coin VARCHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS reward_coin_amount TINYINT UNSIGNED NOT NULL DEFAULT 0;
