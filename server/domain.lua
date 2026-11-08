@@ -10,6 +10,11 @@ function DQ.identifier(value, max)
         and value:match('^[%w_%-]+$') ~= nil
 end
 
+function DQ.activityAvailable(rule, state)
+    return state(rule.resource) == 'started'
+        and (rule.signal ~= 'loot' or state('satou_logging') == 'started')
+end
+
 function DQ.validate(config)
     assert(DQ.identifier(config.Command), 'Invalid command')
     assert(type(config.DebugAce)=='string' and #config.DebugAce>0 and #config.DebugAce<=128, 'Invalid debug ACE')
@@ -50,7 +55,8 @@ function DQ.validate(config)
     for name, activity in pairs(config.Activities) do
         assert(DQ.identifier(name), 'Invalid activity')
         assert(activity.signal == 'job' or activity.signal == 'recycle' or activity.signal == 'house'
-            or activity.signal == 'boosting', 'Invalid activity signal')
+            or activity.signal == 'boosting' or activity.signal == 'loot' or activity.signal == 'cargo', 'Invalid activity signal')
+        if activity.signal == 'loot' then assert(DQ.identifier(activity.item), 'Missing loot item') end
         assert(DQ.identifier(activity.resource), 'Missing signal resource')
         assert(DQ.integer(activity.cooldown, 1, 3600), 'Invalid signal cooldown')
         local signalKey = activity.signal .. ':' .. activity.resource

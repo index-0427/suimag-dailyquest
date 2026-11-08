@@ -183,7 +183,7 @@ local function snapshot(source)
                         or quest.metric == 'distance' and 1000 or 1,
                     precision = quest.metric == 'distance' and 1 or 0,
                     available = quest.metric ~= 'activity'
-                        or GetResourceState(Config.Activities[quest.activity].resource) == 'started',
+                        or DQ.activityAvailable(Config.Activities[quest.activity],GetResourceState),
                     reward=rewardLabel, tags=quest.tags,
                     canReroll=row.status=='active' and row.progress<row.target
                         and tonumber(session.boards[quest.period].rerolls_used)==0,

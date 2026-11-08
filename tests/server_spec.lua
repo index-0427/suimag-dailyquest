@@ -202,7 +202,7 @@ local function claim(id,quest,start)
 end
 player(1,'ALPHA')
 local view=list()
-eq(view.ok,true);eq(#view.quests,40)
+eq(view.ok,true);eq(#view.quests,48)
 eq(row('ALPHA','daily_visit').progress,1)
 eq(row('ALPHA','weekly_visits').progress,1)
 eq(callbacks['suimag-dailyquest:list'](1).error,'rate_limited')
@@ -634,7 +634,7 @@ priorMoney,priorCoins=#payments,#coins
 eq(claim(46,'daily_house').error,'claim_unavailable');hooks.capacity=nil
 eq(expiring.status,'active');eq(#payments,priorMoney);eq(#coins,priorCoins)
 -- A shortage still exposes preferences instead of locking the user out of setup.
-local oldState=DQStore.boardState
+local oldState,oldEnsure=DQStore.boardState,DQStore.ensureBoards
 DQStore.ensureBoards=function() return false,'no_candidates' end
 DQStore.boardState=function() return {},{} end
 player(10,'SHORTAGE')
@@ -643,7 +643,7 @@ eq(shortage.ok,true);eq(shortage.drawError,'no_candidates');eq(#shortage.quests,
 eq(type(shortage.preferences),'table')
 advance(2)
 eq(callbacks['suimag-dailyquest:preferences'](10,{crime=false,employment=false}).ok,true,'settings save without a pre-save draw')
-DQStore.boardState=oldState
+DQStore.boardState,DQStore.ensureBoards=oldState,oldEnsure
 -- Debug authorization is enforced even for callers bypassing the GUI.
 local debugQueries={}
 MySQL.transaction={await=function(queries)
@@ -694,4 +694,22 @@ hooks.debugTransaction=nil
 MySQL.query.await=function(query) return query==DQStore.sql.poolList and {{quest_id='daily_bus',enabled=0}} or {} end
 DQDebug.init();eq(DQSelection.disabled.daily_bus,true)
 DQSelection.disabled={}
+player(51,'LOOT_AVAILABILITY')
+for _,activity in ipairs({'atm','store','uride','cargo'}) do resourceStates[Config.Activities[activity].resource]='started' end
+resourceStates.satou_logging='stopped'
+for _,quests in ipairs({list(51).quests,DQDebug.snapshot({citizenid='LOOT_AVAILABILITY'}).quests}) do
+    local availability={}
+    for _,quest in ipairs(quests) do availability[quest.id]=quest.available end
+    eq(availability.daily_atm,false,'normal/debug: inventory observer stopped')
+    eq(availability.weekly_store,false,'normal/debug: inventory observer stopped')
+    eq(availability.daily_uride,true,'Uride does not require inventory observer')
+    eq(availability.daily_cargo,true,'cargo does not require inventory observer')
+end
+resourceStates.satou_logging='started'
+for _,quests in ipairs({list(51).quests,DQDebug.snapshot({citizenid='LOOT_AVAILABILITY'}).quests}) do
+    local availability={}
+    for _,quest in ipairs(quests) do availability[quest.id]=quest.available end
+    eq(availability.daily_atm,true,'normal/debug: observer restored')
+    eq(availability.weekly_store,true,'normal/debug: observer restored')
+end
 io.write(('server: %d assertions passed\n'):format(count))

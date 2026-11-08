@@ -37,9 +37,10 @@ local function takeCredit(source, cid, amount, rule)
 end
 
 local function findRule(signal, caller)
-    if not caller or GetResourceState(caller) ~= 'started' then return end
+    if not caller then return end
     for activity, rule in pairs(Config.Activities) do
-        if rule.signal == signal and rule.resource == caller then return activity, rule end
+        if rule.signal == signal and rule.resource == caller
+            and DQ.activityAvailable(rule, GetResourceState) then return activity, rule end
     end
 end
 
@@ -78,6 +79,43 @@ AddEventHandler('satou_houserobbery:server:completed', function(houseId, tier, h
         if DQ.integer(source, 1) and not identities[source] then identities[source] = identity(source) end
     end
     for source, cid in pairs(identities) do DQRuntime.signal(source, cid, activity) end
+end)
+
+AddEventHandler('lunar_contracts:heistCompleted', function(contractIndex, contractName, owner, members)
+    local activity = findRule('cargo', GetInvokingResource())
+    if not activity or contractName ~= 'cargo' or not DQ.integer(contractIndex, 0)
+        or type(members) ~= 'table' or #members > 128 then return end
+    local identities = {}
+    -- Lunar sends citizenids; resolve every connected participant before the first DB yield.
+    for _, cid in ipairs(members) do
+        if DQ.identifier(cid) then
+            local player = exports.qbx_core:GetPlayerByCitizenId(cid)
+            local sourceId = player and player.PlayerData and player.PlayerData.source
+            if DQ.integer(sourceId, 1) and identity(sourceId) == cid then identities[sourceId] = cid end
+        end
+    end
+    for sourceId, cid in pairs(identities) do DQRuntime.signal(sourceId, cid, activity) end
+end)
+
+-- The installed inventory bridge reports successful grants, with the original resource and recipient.
+AddEventHandler('satou_logging:inventory', function(op)
+    if GetInvokingResource() ~= 'ox_inventory' or type(op) ~= 'table' or op.action ~= 'add' then return end
+    local activity, rule = findRule('loot', op.resource)
+    if not rule or type(op.actor) ~= 'table' or not DQ.integer(op.actor.src, 1)
+        or type(op.parts) ~= 'table' or #op.parts ~= 1 then return end
+    local sourceId = op.actor.src
+    local cid = identity(sourceId)
+    if not cid or op.actor.cid ~= cid then return end
+    local part = op.parts[1]
+    if type(part) ~= 'table' or part.from ~= nil or type(part.to) ~= 'table'
+        or part.to.type ~= 'player' or part.to.owner ~= cid
+        or type(part.rows) ~= 'table' or #part.rows > 128 then return end
+    for _, row in ipairs(part.rows) do
+        if type(row) == 'table' and row.item == rule.item and DQ.integer(row.count, 1, 1000000000) then
+            DQRuntime.signal(sourceId, cid, activity)
+            return
+        end
+    end
 end)
 
 local function clear(sourceId)

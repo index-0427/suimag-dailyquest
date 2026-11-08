@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         execute(schema)
         execute(schema)  # migration can run repeatedly
         execute(plan("open"))
-        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_progress;"), "40", "all quests created")
+        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_progress;"), "48", "all quests created")
         eq(value("daily_visit"), "1", "daily attendance")
         week_start = 1793563200
         eq(value("weekly_visits", start=week_start), "1", "weekly attendance")
@@ -161,7 +161,8 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         # Every shipped legacy activity writes its daily and weekly quest together.
         execute(plan("gate_open"))
         activities = ["bus", "garbage", "electrician", "postal", "taxi", "gruppe",
-                      "fishing", "hunting", "construction", "cleaning", "recycle", "house", "boosting"]
+                      "fishing", "hunting", "construction", "cleaning", "recycle", "house", "boosting",
+                      "atm", "store", "uride", "cargo"]
 
         def gate_value(activity, period="weekly", start=week_start):
             return scalar("SELECT progress FROM suimag_dailyquest_progress "
@@ -219,7 +220,7 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         eq(len(ids.splitlines()), 5, "initial race creates five assignments exactly")
         eq(sum(line.startswith("daily:") for line in ids.splitlines()), 3, "three daily slots")
         eq(sum(line.startswith("weekly:") for line in ids.splitlines()), 2, "two weekly slots")
-        eq("house" in ids or "boosting" in ids or "duty" in ids, False, "exclusions applied")
+        eq(any(activity in ids for activity in ("house", "boosting", "atm", "store", "cargo", "duty")), False, "exclusions applied")
         eq(len(PLANS["board_draw_again"]), 0, "reconnect does not draw again")
         execute(board_plan("board_prefs_change"))
         eq(board_ids(), ids, "preference updates do not change assignments")
@@ -469,7 +470,7 @@ with tempfile.TemporaryDirectory(prefix="suimag-dq-db-") as tmp:
         def debug_value(quest, column="progress"):
             return scalar(f"SELECT {column} FROM suimag_dailyquest_debug_progress WHERE citizenid='SQLDEBUG' AND quest_id='{quest}';")
         execute(plan('debug_start'))
-        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_debug_progress WHERE citizenid='SQLDEBUG';"), '40', 'all debug quests')
+        eq(scalar("SELECT COUNT(*) FROM suimag_dailyquest_debug_progress WHERE citizenid='SQLDEBUG';"), '48', 'all debug quests')
         execute(plan('debug_tick'))
         for quest, expected in [('daily_visit','1'),('weekly_visits','1'),('daily_time','15'),('weekly_time','15'),('daily_walk','25'),('weekly_walk','25'),('daily_duty','5')]:
             eq(debug_value(quest), expected, 'debug measurement: '+quest)

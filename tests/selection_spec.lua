@@ -13,6 +13,29 @@ local police={job={name='police',type='leo',grade={level=2}}}
 eq(P.preferences({crime=true,employment=false}).crime,true)
 for _,invalid in ipairs({{}, {crime=1,employment=false},{crime=false,employment=true,extra=true},'bad'}) do eq(P.preferences(invalid),nil) end
 eq(P.eligible(defs.daily_house,{crime=true,employment=false},police,all,now),false)
+for _,kind in ipairs({'daily','weekly'}) do
+    for _,activity in ipairs({'atm','store'}) do
+        local quest=defs[kind..'_'..activity]
+        eq(P.eligible(quest,{crime=true,employment=false},police,all,now),false,'crime exclusion')
+        eq(P.eligible(quest,{crime=false,employment=false},unemployed,all,now),true,'available loot activity')
+        eq(P.eligible(quest,{crime=false,employment=false},unemployed,function(name)
+            return name=='satou_logging' and 'stopped' or 'started'
+        end,now),false,'missing inventory observer')
+        eq(P.eligible(quest,{crime=false,employment=false},unemployed,function(name)
+            return name==Config.Activities[activity].resource and 'stopped' or 'started'
+        end,now),false,'missing robbery resource')
+    end
+    local cargo=defs[kind..'_cargo']
+    eq(P.eligible(cargo,{crime=true,employment=false},police,all,now),false,'cargo crime exclusion')
+    eq(P.eligible(cargo,{crime=false,employment=false},unemployed,all,now),true,'cargo eligible')
+    eq(P.eligible(cargo,{crime=false,employment=false},unemployed,function(name)
+        return name=='satou_logging' and 'stopped' or 'started'
+    end,now),true,'cargo uses its own completion event')
+    eq(P.eligible(cargo,{crime=false,employment=false},unemployed,function(name)
+        return name=='lunar_heistcontracts' and 'stopped' or 'started'
+    end,now),false,'cargo resource unavailable')
+    eq(P.eligible(defs[kind..'_uride'],{crime=true,employment=true},unemployed,all,now),true,'Uride is public work')
+end
 eq(P.eligible(defs.daily_duty,{crime=false,employment=false},unemployed,all,now),false)
 eq(P.eligible(defs.daily_duty,{crime=false,employment=true},police,all,now),false)
 eq(P.eligible(defs.daily_duty,{crime=false,employment=false},police,all,now),true)

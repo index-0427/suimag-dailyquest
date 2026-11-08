@@ -71,9 +71,14 @@ Config.Activities = {
     recycle = { resource='jim-recycle', signal='recycle', cooldown=5 },
     house = { resource='satou_houserobbery', signal='house', cooldown=60 },
     boosting = { resource='gg_boosting', signal='boosting', cooldown=60 },
+    atm = { resource='projectx-atmrobbery', signal='loot', item='black_money', cooldown=60 },
+    store = { resource='satou_storerobbery', signal='loot', item='black_money', cooldown=60 },
+    cargo = { resource='lunar_heistcontracts', signal='cargo', cooldown=60 },
+    uride = { resource='fr-ride', signal='job', payment=true,
+        reasons={ ['rideshare-earning']=true, ['npc-mission-reward']=true }, cooldown=30 },
 }
 
--- 日次20種類・週次20種類。既存6件のIDと条件は維持。
+-- 日次24種類・週次24種類。既存クエストのIDと条件は維持。
 local function pair(id, metric, daily, weekly, titles, description, extra)
     for i, period in ipairs({ 'daily', 'weekly' }) do
         local quest = {
@@ -122,12 +127,22 @@ pair('house', 'activity', 1, 3, { 'ひと仕事して脱出', '家強盗の一�
 pair('boosting', 'activity', 1, 3, { 'ターゲット車両を届ける', '今週のブースティング' },
     'ブースティングを完了する。成功フックで通知されたグループ参加者が対象。', { activity='boosting', unit='回' })
 
+pair('atm', 'activity', 1, 3, { 'ATM強盗の成果', '今週のATM強盗' },
+    'ATM強盗で黒いお金を獲得する。部品・ATM本体の取得は対象外。', { activity='atm', unit='回' })
+pair('store', 'activity', 1, 3, { 'コンビニ強盗の成果', '今週のコンビニ強盗' },
+    'コンビニ強盗でレジ・店内ATM・金庫などから黒いお金を獲得する。店舗全体の攻略回数では数えない。', { activity='store', unit='回' })
+pair('cargo', 'activity', 1, 3, { 'カーゴ強盗の成果', '今週のカーゴ強盗' },
+    'カーゴ強盗の契約を成功させる。完了通知に含まれる参加者が対象。', { activity='cargo', unit='回' })
+pair('uride', 'activity', 2, 12, { 'Urideでひと送り', '今週のUrideドライバー' },
+    'Urideの運転手としてプレイヤー送迎またはNPCミッションを精算し、運賃を受け取る。乗客としての利用は対象外。', { activity='uride', unit='回' })
+
 -- カタログから各期間に提示する件数。設定保存前は抽選・進捗加算をしない。
 Config.Draw = { daily=3, weekly=2 }
 -- タグは複数付与可能。必要なら requirements.jobs={police=2} / types={leo=true} で所属・最低ランクを限定。
 for _, quest in ipairs(Config.Quests) do
     quest.tags = {}
-    if quest.activity == 'house' or quest.activity == 'boosting' then quest.tags.crime = true end
+    if quest.activity == 'house' or quest.activity == 'boosting'
+        or quest.activity == 'atm' or quest.activity == 'store' or quest.activity == 'cargo' then quest.tags.crime = true end
     if quest.metric == 'duty' then
         quest.tags.employment = true
         quest.requirements = { employed=true }

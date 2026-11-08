@@ -125,7 +125,7 @@ function D.snapshot(session)
             target=row and tonumber(row.target) or quest.target,value=row and tonumber(row.progress) or 0,
             updatedAt=row and tonumber(row.updated_at) or nil,
             enabled=not DQSelection.disabled[quest.id],
-            available=quest.metric~='activity' or GetResourceState(Config.Activities[quest.activity].resource)=='started',
+            available=quest.metric~='activity' or DQ.activityAvailable(Config.Activities[quest.activity],GetResourceState),
             source=quest.metric=='activity' and Config.Activities[quest.activity].resource or nil,
             unit=(quest.metric=='playtime' or quest.metric=='duty') and '秒' or quest.metric=='distance' and 'm' or (quest.unit or '回'),
         }

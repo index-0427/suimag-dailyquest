@@ -23,7 +23,7 @@ function P.eligible(quest, prefs, data, state, now, reroll)
     if requirements.types and not requirements.types[job.type] then return false end
     if quest.metric == 'activity' then
         local rule = Config.Activities[quest.activity]
-        if state(rule.resource) ~= 'started' then return false end
+        if not DQ.activityAvailable(rule,state) then return false end
     end
     local period = DQ.period(quest.period, now, Config.Reset)
     if quest.metric == 'attendance' then

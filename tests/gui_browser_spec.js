@@ -278,8 +278,8 @@ const board = {
     await show();
     assert.equal(await page.locator('#debug-tab').isVisible(),false,'normal users have no debug tab');
     const adminBoard={...board,canDebug:true};
-    const debugBoard={enabled:true,quests:Array.from({length:40},(_,i)=>({
-      id:'debug-'+i,period:i<20?'daily':'weekly',title:'検証クエスト '+i,description:'実際の行動で進捗を確認する。',
+    const debugBoard={enabled:true,quests:Array.from({length:48},(_,i)=>({
+      id:'debug-'+i,period:i<24?'daily':'weekly',title:'検証クエスト '+i,description:'実際の行動で進捗を確認する。',
       metric:'consume',target:3,value:i%3===0?0:i%3===1?1:3,unit:'回',enabled:i!==1,available:i!==2
     }))};
     await show(adminBoard);
@@ -288,20 +288,20 @@ const board = {
     assert.equal(await page.locator('#board-view').isVisible(),false);
     assert.equal(await page.locator('#debug-refresh').isEnabled(),false,'wait for the server beyond the NUI acknowledgement');
     await send({action:'suimag-dailyquest:debugResult',ok:true,data:debugBoard});
-    assert.equal(await page.locator('.debug-row').count(),40);
+    assert.equal(await page.locator('.debug-row').count(),48);
     assert.equal(await page.locator('.debug-state').nth(0).textContent(),'未検出');
     assert.equal(await page.locator('.debug-state').nth(1).textContent(),'進捗あり');
     assert.equal(await page.locator('.debug-state').nth(2).textContent(),'達成');
     await page.locator('#debug-reset-all').focus();
     await page.keyboard.press('Tab');
     assert.equal(await page.evaluate(()=>document.activeElement.id),'debug-filter','filter is keyboard reachable');
-    for (const [state,label,count] of [['idle','未検出',14],['moved','進捗あり',13],['done','達成',13]]) {
+    for (const [state,label,count] of [['idle','未検出',16],['moved','進捗あり',16],['done','達成',16]]) {
       await page.locator('#debug-filter').selectOption(state);
       assert.equal(await page.locator('.debug-row').count(),count);
       assert.deepEqual([...new Set(await page.locator('.debug-state').allTextContents())],[label]);
     }
     await page.locator('#debug-filter').selectOption('all');
-    assert.equal(await page.locator('.debug-row').count(),40);
+    assert.equal(await page.locator('.debug-row').count(),48);
     await page.locator('.debug-row').first().getByRole('switch').click();
     assert.deepEqual(await page.evaluate(()=>nuiCalls.at(-1).data),{action:'debug',period:'daily',operation:'pool',id:'debug-0',enabled:false});
     debugBoard.quests[0].enabled=false;
@@ -314,7 +314,7 @@ const board = {
     await send({action:'suimag-dailyquest:debugResult',ok:true,data:debugBoard,operation:'reset'});
     assert.equal(await page.locator('#debug-filter').inputValue(),'moved','refresh keeps the filter');
     assert.equal(await page.locator('.debug-row[data-id="debug-1"]').count(),0,'reset row leaves the progress filter');
-    assert.match(await page.locator('#debug-summary').textContent(),/表示 12件/);
+    assert.match(await page.locator('#debug-summary').textContent(),/表示 15件/);
     await send({action:'suimag-dailyquest:debugResult',ok:true,data:{...debugBoard,quests:debugBoard.quests.map(q=>({...q,value:0}))}});
     assert.equal(await page.locator('.debug-row').count(),0);
     assert.match(await page.locator('#debug-rows .empty-state').textContent(),/この検証状態/);
