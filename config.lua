@@ -15,7 +15,7 @@ Config.Consumables = { water = true, burger = true }
 
 -- 金銭報酬は全クエスト共通。デイリー3件で45万＋全クリア20万、ウィークリー2件で100万。
 Config.Rewards = { account='bank', daily=150000, dailyComplete=200000, weekly=500000 }
-Config.CoinRewards = { daily=1, weekly=3, crime='black_coin', employment='white_coin' }
+Config.CoinRewards = { daily=1, weekly=3, crime='black_coin', employment='white_coin', dailyComplete=1, dailyCompleteItem='fle_token' }
 -- 公開済みの id / period / metric を変えず、新しい条件は新しいidで追加する。
 -- target は期間内の初回作成時に固定。共通報酬の変更は未受取(active)に適用し、保留・受取済みは維持。
 Config.Quests = {

@@ -151,10 +151,15 @@ local function snapshot(source)
             local total=tonumber(bonusRow.required_count)
             local completed=tonumber(bonusRow.completed_count)
             assert(DQ.integer(total,1,20) and DQ.integer(completed,0,20),'Invalid daily bonus counts')
+            local rewardLabel=('%s $%d'):format(bonusRow.reward_type=='bank' and '銀行' or '現金',bonusRow.reward_amount)
+            if (tonumber(bonusRow.reward_coin_amount) or 0)>0 then
+                local item=exports.ox_inventory:Items(bonusRow.reward_coin)
+                rewardLabel=rewardLabel..(' + %s × %d'):format(item and item.label or bonusRow.reward_coin,bonusRow.reward_coin_amount)
+            end
             bonus={
                 periodStart=tonumber(bonusRow.period_start),status=bonusRow.status,
                 total=total,completed=completed,
-                reward=('%s $%d'):format(bonusRow.reward_type=='bank' and '銀行' or '現金',bonusRow.reward_amount),
+                reward=rewardLabel,
                 canClaim=bonusRow.status=='active' and tonumber(bonusRow.assigned_count)==total and completed==total,
             }
         end

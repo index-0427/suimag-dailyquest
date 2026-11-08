@@ -28,10 +28,10 @@ function DQ.validate(config)
         assert(DQ.integer(config.Rewards[kind],1,10000000), 'Invalid common reward amount')
     end
     assert(type(config.CoinRewards)=='table', 'Missing coin rewards')
-    for _,kind in ipairs({'daily','weekly'}) do
+    for _,kind in ipairs({'daily','weekly','dailyComplete'}) do
         assert(DQ.integer(config.CoinRewards[kind],1,255),'Invalid coin count')
     end
-    for _,tag in ipairs({'crime','employment'}) do
+    for _,tag in ipairs({'crime','employment','dailyCompleteItem'}) do
         assert(DQ.identifier(config.CoinRewards[tag]),'Invalid coin item')
     end
     for name, value in pairs(config.Consumables) do
