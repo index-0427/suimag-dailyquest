@@ -151,7 +151,7 @@ local coins={}
 exports.ox_inventory={
     Items=function(_,name)
         if hooks.missingItem then return nil end
-        if name=='fle_token' then return {label='Fleトークン'} end
+        if name=='fle_token' then return {label='FLEトークン'} end
         if name=='black_coin' or name=='white_coin' then return {label=name=='black_coin' and '黒コイン' or '白コイン'} end
     end,
     CanCarryItem=function() hook('capacity');return not hooks.full end,
@@ -412,7 +412,7 @@ player(11,'BONUS');local b=makeBonus('BONUS',2)
 eq(list(11).dailyBonus.canClaim,false)
 before=#payments;eq(claimBonus(11).error,'incomplete');eq(#payments,before)
 b.completed_count=3;eq(list(11).dailyBonus.canClaim,true)
-eq(list(11).dailyBonus.reward:find('Fleトークン × 1',1,true)~=nil,true)
+eq(list(11).dailyBonus.reward:find('FLEトークン × 1',1,true)~=nil,true)
 eq(claimBonus(11).ok,true);eq(payments[#payments].amount,200000)
 eq(coins[#coins].name,'fle_token');eq(coins[#coins].amount,1)
 eq(payments[#payments].reason,'dailyquest:bonus:'..b.id)

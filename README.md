@@ -7,7 +7,7 @@ F10 または `/dailyquest` で専用GUIを開き、進捗を確認して達成�
 - 日次20候補から3件・週次20候補から2件をキャラクター別に抽選。日次は短時間枠を最低1件
 - 日次は毎日 **JST 05:00**、週次は **月曜 JST 05:00** に更新。画面を開いている間は日次更新までのカウントダウンを表示
 - 初回の属性設定、犯罪／職業・所属必須の除外、未達成1件を日次・週次各1回リロール
-- 共通の銀行報酬：デイリー1件15万、全クリア追加20万＋Fleトークン1枚、ウィークリー1件50万
+- 共通の銀行報酬：デイリー1件15万、全クリア追加20万＋FLEトークン1枚、ウィークリー1件50万
 - 犯罪タグは黒コイン、職業・所属必須タグは白コインを追加。デイリー1枚・ウィークリー3枚
 - 日次更新時に達成済み・未受取の通常報酬と全クリア報酬を自動受取。オフライン中は次回ログイン時に受取
 - 進捗と受取状態を専用SQLテーブルに保存。再接続・リソース再起動後も継続
@@ -53,7 +53,7 @@ ensure suimag-dailyquest
 
 コイン報酬追加版では、progressテーブルに `reward_coin` と `reward_coin_amount` を追加します。
 自動作成が有効なら起動時に追加します（ALTER権限が必要）。無効なら更新前に `sql/schema.sql` を再適用してください。
-ox_inventoryに `black_coin`、`white_coin`、`fle_token` が登録されている必要があります。
+ox_inventoryに `black_coin`、`white_coin`、`fle_token` が登録されている必要があります。`fle_token` の表示名はアイテム定義の `label` を参照するため、`label = 'FLEトークン'` にしてください。
 
 ## 設定
 
@@ -66,7 +66,7 @@ ox_inventoryに `black_coin`、`white_coin`、`fle_token` が登録されてい�
 - 飲食対象は `Config.Consumables` の実在するアイテム名を指定。現在は対応環境で確認した `water` / `burger` のみ
 - `Config.Key` の初期値は `F10`。別のキーに変更でき、`nil` にするとキー登録を無効化
 
-全クリア報酬にFleトークン（`fle_token`）1枚を追加します。枚数・アイテムIDは `Config.CoinRewards.dailyComplete` / `dailyCompleteItem` で変更できます。既存環境では `sql/schema.sql` の再適用が必要です（自動作成が有効なら起動時に適用）。受取済み・保留中の報酬には遡及付与しません。
+全クリア報酬にFLEトークン（`fle_token`）1枚を追加します。枚数・アイテムIDは `Config.CoinRewards.dailyComplete` / `dailyCompleteItem` で変更できます。既存環境では `sql/schema.sql` の再適用が必要です（自動作成が有効なら起動時に適用）。受取済み・保留中の報酬には遡及付与しません。
 
 金銭報酬は Config.Rewards、タグ別の追加コインは Config.CoinRewards で設定します。個別クエストに reward を書くと設定エラーになります。
 
