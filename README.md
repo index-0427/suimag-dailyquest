@@ -86,7 +86,8 @@ Config.Rewards = {
 削除したクエストは表示・受取対象から外れますが、保存記録は残ります。
 
 現在のジョブが `admin`、または `Config.DebugAce`（初期値 `admin`）のACEが許可されていると、左側のデバッグから全クエストの進捗検証・リセットと、
-サーバー共通の抽選ON/OFFを操作できます。[使い方](docs/gui.md#管理者向けデバッグ)を参照してください。
+サーバー共通の抽選ON/OFFを操作できます。 各行の「検証開始」で計測・不足品の支給・受付移動などをまとめて行い、F10で今回の加算を確認できます。[使い方](docs/gui.md#管理者向けデバッグ)を参照してください。
+準備ボタン自体にDBスキーマ追加はありません。他リソースのコード・設定は変更しません。家強盗は入口移動・道具準備・既存APIによる開始可否の表示を行い、PD人数・待ち時間・解錠・強奪・退室は通常どおりです。
 この追加では検証用進捗と抽選設定の2テーブルが必要です。自動作成が無効なら `sql/schema.sql` を再適用してください。
 
 ## ジョブ連携
@@ -133,7 +134,7 @@ Qboxの所持金保存・ox_inventoryの保存と当リソースのSQLは**同�
 Lua 5.4、Node.js、Python 3、MariaDBのサーバー／クライアントが必要です。追加言語パッケージ不要。
 
 ```bash
-find . -name '*.lua' -not -path './.git/*' -print0 | xargs -0 -n1 luac -p
+find . -name '*.lua' -not -path './.git/*' -not -path './.work/*' -print0 | xargs -0 -n1 luac -p
 TZ=UTC lua tests/domain_spec.lua
 TZ=America/New_York lua tests/domain_spec.lua
 lua tests/server_spec.lua
@@ -144,6 +145,8 @@ lua tests/boards_spec.lua
 lua tests/settlement_spec.lua
 lua tests/tracking_spec.lua
 lua tests/adapters_spec.lua
+lua tests/preparations_spec.lua
+lua tests/preparation_client_spec.lua
 node --check ui/countdown.js
 node --check ui/quests.js
 node tests/countdown_spec.js

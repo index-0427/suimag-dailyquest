@@ -81,6 +81,7 @@ local function run(source, fn, allowSetup, skipDraw)
     if not current(source, session) then return { ok = false, error = 'player_unavailable' } end
     locks[citizenid] = true
     DQDebug.active(source,session)
+    local preparationBefore,debugBefore=session.preparation,session.debug
     local ok, result = xpcall(function()
         local now = os.time()
         local day = DQ.period('daily', now, Config.Reset).start
@@ -111,6 +112,8 @@ local function run(source, fn, allowSetup, skipDraw)
     end, debug.traceback)
     locks[citizenid] = nil
     if not ok then
+        if session.preparation and session.preparation~=preparationBefore then DQPreparation.cleanup(session) end
+        if not debugBefore then session.debug=nil end
         log('Operation failed: ' .. tostring(result))
         return { ok = false, error = 'storage_error' }
     end
@@ -346,31 +349,61 @@ end)
 lib.callback.register(prefix..'debug',function(source,action,id,enabled)
     if not DQDebug.allowed(source) then return {ok=false,error='forbidden'} end
     if not rateLimit(source,'debug') then return {ok=false,error='rate_limited'} end
-    if action~='list' and action~='start' and action~='stop' and action~='reset' and action~='pool' then
+    local preparationAction=action=='prepare' or action=='finish' or action=='waypoint' or action=='ready' or action=='nextHouse'
+    if action~='list' and action~='start' and action~='stop' and action~='reset' and action~='pool' and not preparationAction then
         return {ok=false,error='invalid_request'}
     end
-    if (action=='pool' or action=='reset' and id~=nil) and (type(id)~='string' or not definitions[id]) then
+    if (preparationAction or action=='pool' or action=='reset' and id~=nil) and (type(id)~='string' or not definitions[id]) then
         return {ok=false,error='invalid_request'}
     end
-    if action=='pool' and type(enabled)~='boolean' then return {ok=false,error='invalid_request'} end
+    if (action=='pool' or action=='ready') and type(enabled)~='boolean' then return {ok=false,error='invalid_request'} end
     return run(source,function(session,now)
         local function valid() return current(source,session) and DQDebug.allowed(source) end
         if not valid() then return {ok=false,error='forbidden'} end
+        -- Cleanup and travel acknowledgement must still work during a DB outage.
+        if action=='finish' then
+            local ok,travel=DQPreparation.finish(session,id)
+            return ok and {ok=true,travel=travel} or {ok=false,error=travel}
+        elseif action=='ready' then
+            return DQPreparation.ready(session,id,enabled) and {ok=true} or {ok=false,error='invalid_request'}
+        end
         DQDebug.flush(session,now)
-        if not valid() then session.debug=nil;return {ok=false,error='forbidden'} end
-        if action=='start' then
+        if not valid() then DQPreparation.cleanup(session);session.debug=nil;return {ok=false,error='forbidden'} end
+        local travel
+        if action=='prepare' then
+            local ok,err=DQPreparation.precheck(session,definitions[id])
+            if not ok then return {ok=false,error=err} end
+            local wasRecording=session.debug~=nil
+            if not DQDebug.start(session,valid) then return {ok=false,error='forbidden'} end
+            DQDebug.reset(session,id)
+            ok,travel=DQPreparation.start(session,definitions[id],valid)
+            if not ok then
+                if not wasRecording then session.debug=nil end
+                return {ok=false,error=travel}
+            end
+            DQDebug.flush(session,os.time())
+        elseif action=='nextHouse' then
+            local err
+            travel,err=DQPreparation.nextHouse(session,id)
+            if not travel then return {ok=false,error=err} end
+        elseif action=='waypoint' then
+            local err
+            travel,err=DQPreparation.waypoint(session,id)
+            if not travel then return {ok=false,error=err or 'invalid_request'} end
+        elseif action=='start' then
             if not DQDebug.start(session,valid) then return {ok=false,error='forbidden'} end
             DQDebug.flush(session,os.time())
-        elseif action=='stop' then session.debug=nil
+        elseif action=='stop' then DQPreparation.cleanup(session);session.debug=nil
         elseif action=='reset' then DQDebug.reset(session,id)
         elseif action=='pool' then
             local ok,err=DQDebug.setPool(id,enabled)
             if not ok then return {ok=false,error=err} end
             log(('Quest pool %s = %s by %s'):format(id,tostring(enabled),session.citizenid))
         end
-        if not valid() then session.debug=nil;return {ok=false,error='forbidden'} end
+        if not valid() then DQPreparation.cleanup(session);session.debug=nil;return {ok=false,error='forbidden'} end
         local result=DQDebug.snapshot(session)
-        if not valid() then session.debug=nil;return {ok=false,error='forbidden'} end
+        result.travel=travel
+        if not valid() then DQPreparation.cleanup(session);session.debug=nil;return {ok=false,error='forbidden'} end
         return result
     end,true,true)
 end)
@@ -428,6 +461,7 @@ end)
 local function unload(sourceId)
     sourceId = tonumber(sourceId)
     if not sourceId then return end
+    DQPreparation.cleanup(sessions[sourceId])
     blocked[sourceId] = true
     sessions[sourceId], requests[sourceId], consumption[sourceId] = nil, nil, nil
 end
@@ -444,6 +478,7 @@ AddEventHandler('QBCore:Server:PlayerLoaded', function(player)
     if not sourceId then return end
     local live = exports.qbx_core:GetPlayer(sourceId)
     if not live or live.PlayerData.citizenid ~= data.citizenid then return end
+    DQPreparation.cleanup(sessions[sourceId])
     blocked[sourceId] = nil
     sessions[sourceId], requests[sourceId], consumption[sourceId] = nil, nil, nil
 end)
@@ -451,6 +486,12 @@ end)
 AddEventHandler('playerDropped', function()
     unload(source)
     blocked[source] = nil
+end)
+
+AddEventHandler('onResourceStop', function(name)
+    if name==resource then
+        for _,session in pairs(sessions) do DQPreparation.cleanup(session) end
+    end
 end)
 
 -- Console only: no player ACE, network event or public endpoint exposes other characters.
@@ -497,6 +538,7 @@ CreateThread(function()
                     if player and player.PlayerData.citizenid == session.citizenid then
                         local ok, frame = pcall(DQTracking.frame, sourceId, player.PlayerData)
                         if ok then
+                            if DQPreparation.moving(session) then frame=nil end
                             DQTracking.sample(session, frame)
                             if not locks[session.citizenid] and DQDebug.active(sourceId,session) then DQDebug.sample(session,frame) end
                         else session.tracking = nil; log('Tracking sample failed: ' .. tostring(frame)) end

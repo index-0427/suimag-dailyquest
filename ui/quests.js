@@ -8,7 +8,7 @@
   let debugBoard = null, debugVisible = false, debugWaiting = false;
   const pendingHelp = '報酬の確認が必要です。管理者へお問い合わせください。';
   const loadingLabels = {
-    debug: ['処理中…', '検証データを更新しています…'],
+    debug: ['処理中…', '検証操作を実行しています…'],
     debugView: ['読込中…', '全クエストの検証データを読み込んでいます…'],
     claim: ['受取中…', 'クエスト報酬を受け取っています…'],
     bonus: ['受取中…', '全クリア報酬を受け取っています…'],
@@ -56,7 +56,7 @@
     $('preferences-save').dataset.label = board?.needsSetup ? 'この設定でクエストを始める' : '設定を保存';
     app.querySelectorAll('button:not(#close):not([data-period]):not([data-view])').forEach(el => {
       if (loading && el === document.activeElement) savedFocus = readFocus();
-      el.disabled = loading;
+      el.disabled = loading || el.dataset.disabled === 'true';
       if (!el.dataset.label) el.dataset.label = el.textContent;
       el.textContent = loading && focusKey(el) === sourceKey ? labels[0] : el.dataset.label;
     });
@@ -172,6 +172,28 @@
     const quests = Array.isArray(debugBoard?.quests) ? debugBoard.quests : [];
     const filter = $('debug-filter').value;
     const visibleQuests = quests.filter(q => filter === 'all' || debugState(q) === filter);
+    const trial = debugBoard?.preparation;
+    $('debug-preparation').hidden = !trial;
+    $('debug-toggle').dataset.disabled = String(!!trial);
+    $('debug-reset-all').dataset.disabled = String(!!trial);
+    if (trial) {
+      const quest = quests.find(q => q.id === trial.id);
+      $('debug-preparation-title').textContent = trial.title || quest?.title || '検証中';
+      $('debug-preparation-help').textContent = trial.help || '';
+      $('debug-preparation-result').textContent = trial.moving ? '準備中' : trial.failed ? '移動失敗・終了して再準備' :
+        quest?.value > 0 ? `今回 +${quest.value} ${quest.unit || ''} を検出` : '加算待ち';
+      $('debug-preparation-cooldown').textContent = trial.cooldown > 0 ? `同じ活動の次の加算まで約${trial.cooldown}秒。一覧更新で再確認できます。` : '';
+      $('debug-waypoint').hidden = trial.waypoint !== true;
+      $('debug-next-house').hidden = !trial.houseId;
+      $('debug-check').dataset.label = trial.houseId ? '結果・開始条件を確認' : '結果を確認';
+      for (const id of ['debug-waypoint','debug-next-house','debug-finish']) {
+        $(id).dataset.disabled = String(trial.returnBlocked === true);
+      }
+      const check = trial.startCheck;
+      $('debug-house-status').textContent = trial.returnBlocked ? '通常の出口から退室してください。入室中は移動・帰還できません。' :
+        trial.houseId ? `物件 ${trial.houseId} / 開始判定：${check?.message || '「結果・開始条件を確認」で現在の条件を確認できます。'}` : '';
+      $('debug-house-status').dataset.state = trial.returnBlocked || check?.allowed === false ? 'blocked' : check?.allowed === true ? 'ready' : '';
+    }
     const running = debugBoard?.enabled === true;
     $('debug-recording').textContent = running ? '計測中' : '計測停止中';
     $('debug-recording').classList.toggle('recording', running);
@@ -199,7 +221,19 @@
       pool.append(input, node('span', '', q.enabled === false ? 'OFF' : 'ON'));
       const reset = button('リセット', 'debug', { operation: 'reset', id: q.id }, 'secondary-button');
       reset.dataset.focusKey = `debug:${q.id}:reset`; reset.setAttribute('aria-label', `${q.title}の検証用進捗をリセット`);
-      row.append(identity, status, progress, pool, reset); rows.append(row);
+      const actions = node('div', 'debug-actions');
+      if (q.preparation) {
+        const prepare = button(trial?.id === q.id ? '検証中' : '検証開始', 'debug', { operation: 'prepare', id: q.id }, 'action-button');
+        prepare.dataset.focusKey = `debug:${q.id}:prepare`;
+        prepare.dataset.disabled = String(!!trial || q.available === false || q.preparation.available === false);
+        prepare.setAttribute('aria-label', `${q.title}の検証を開始`);
+        const note = node('span', 'debug-prep-note', q.preparation.reason || q.preparation.label);
+        note.id = `debug-prep-note-${q.id}`; prepare.setAttribute('aria-describedby', note.id);
+        actions.append(prepare, note);
+      }
+      reset.dataset.disabled = String(trial?.id === q.id);
+      actions.append(reset);
+      row.append(identity, status, progress, pool, actions); rows.append(row);
     });
     if (!visibleQuests.length) rows.append(node('p', 'empty-state', quests.length ? 'この検証状態のクエストはありません。' : '「一覧を更新」で検証データを取得できます。'));
     savedFocus = focus; updateBusy();
@@ -344,6 +378,7 @@
         showBoard();
         if (board.needsSetup) showPreferences();
         else $('close').focus();
+        if (data.showDebug && board.canDebug === true) switchView(true);
       }
     }
   });
@@ -357,6 +392,10 @@
   $('debug-filter').onchange = renderDebug;
   $('debug-toggle').onclick = () => action('debug', { operation: debugBoard?.enabled ? 'stop' : 'start' }, $('debug-toggle'));
   $('debug-refresh').onclick = () => action('debug', { operation: 'list' }, $('debug-refresh'));
+  $('debug-check').onclick = () => action('debug', { operation: 'list' }, $('debug-check'));
+  $('debug-waypoint').onclick = () => action('debug', { operation: 'waypoint', id: debugBoard?.preparation?.id }, $('debug-waypoint'));
+  $('debug-next-house').onclick = () => action('debug', { operation: 'nextHouse', id: debugBoard?.preparation?.id }, $('debug-next-house'));
+  $('debug-finish').onclick = () => action('debug', { operation: 'finish', id: debugBoard?.preparation?.id }, $('debug-finish'));
   $('debug-reset-all').onclick = () => action('debug', { operation: 'reset' }, $('debug-reset-all'));
   $('close').onclick = () => action('close');
   $('refresh').onclick = () => action('refresh', {}, $('refresh'));

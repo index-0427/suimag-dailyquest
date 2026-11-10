@@ -1,6 +1,7 @@
 local prefix = 'suimag-dailyquest:'
 local busy, generation, lastList = false, 0, nil
-local open
+local open, close
+local lifecycle, debugResume = 0, false
 local guiData, guiVisible, guiReady
 local debugVisible, debugData = false, nil
 local lastDebugRequest
@@ -14,6 +15,18 @@ local countdown,overlayStamp
 local overlayVisible,nextRefresh=false,0
 
 local errors = {
+    preparation_active = '現在の検証を「終了して戻る」で終了してください。',
+    prepare_unavailable = '検証に必要なリソースが利用できません。',
+    prepare_failed = '検証準備に失敗しました。支給品などの後始末を行いました。',
+    exit_required = '家や施設の通常の出口から退室してから操作してください。',
+    on_foot_required = '車両から降りてから操作してください。',
+    other_passengers = 'ほかのプレイヤーが同乗している車両は移動できません。',
+    world_required = '通常の街に戻ってから操作してください。',
+    alive_required = '生存状態で検証を開始してください。',
+    not_employed = '勤務検証には無職以外の職業が必要です。',
+    spawn_busy = '車両の準備地点が埋まっています。空いてから再試行してください。',
+    no_waypoint = '先にマップで目的地を設定してください。',
+    travel_failed = '安全に移動できませんでした。目的地を確認して再試行してください。',
     forbidden = 'デバッグ権限がありません。Adminジョブ、または設定されたACE権限が必要です。',
     setup_required = '最初に抽選設定を保存してください。',
     no_candidates = '条件に合う交換候補がありません。リロール回数は消費していません。',
@@ -30,8 +43,8 @@ local errors = {
     pending = '報酬は確認待ちです。二重配布防止のため再受取を停止しています。管理者へご連絡ください。',
     claimed = 'この報酬は受取済みです。',
     incomplete = 'まだ目標に達していません。',
-    invalid_item = '報酬コインが未登録です。管理者へご連絡ください。',
-    inventory_full = 'コインを受け取る空きがありません。持ち物を整理してから受け取ってください。',
+    invalid_item = '必要なアイテムが未登録です。管理者へご連絡ください。',
+    inventory_full = '持ち物の空きがありません。整理してから再試行してください。',
     reward_failed = '報酬を付与できませんでした。時間をおいて再度お試しください。',
     claim_unavailable = '受取状態が変わりました。一覧を更新してください。',
     unavailable = 'サーバーに接続できませんでした。しばらくしてからお試しください。',
@@ -44,7 +57,10 @@ local function notify(result)
 end
 
 local function request(action, ...)
-    local epoch = generation
+    local epoch, life = generation, lifecycle
+    local op=action=='debug' and select(1,...) or nil
+    local keepOnClose=op=='prepare' or op=='finish' or op=='waypoint' or op=='ready' or op=='nextHouse'
+    local function cancelled() return life~=lifecycle or epoch~=generation and not keepOnClose end
     if action=='debug' and lastDebugRequest then
         local elapsed=GetGameTimer()-lastDebugRequest
         if elapsed>=0 and elapsed<Config.RequestCooldownMs+100 then Wait(Config.RequestCooldownMs+100-elapsed) end
@@ -53,12 +69,12 @@ local function request(action, ...)
         local elapsed = GetGameTimer() - lastList
         if elapsed >= 0 and elapsed < Config.RequestCooldownMs + 100 then Wait(Config.RequestCooldownMs + 100 - elapsed) end
     end
-    if epoch ~= generation then return { ok = false, error = 'cancelled' } end
+    if cancelled() then return { ok = false, error = 'cancelled' } end
     if action == 'list' then lastList = GetGameTimer() end
     if action == 'debug' then lastDebugRequest = GetGameTimer() end
     if guiVisible then SendNUIMessage({action=prefix..'busy',busy=true,operation=action}) end
     local ok, result = pcall(lib.callback.await, prefix .. action, false, ...)
-    if epoch ~= generation then return { ok = false, error = 'cancelled' } end
+    if cancelled() then return { ok = false, error = 'cancelled' } end
     if guiVisible then SendNUIMessage({action=prefix..'busy',busy=false}) end
     if not ok or type(result) ~= 'table' then return { ok = false, error = 'unavailable' } end
     return result
@@ -137,18 +153,19 @@ local function reroll(quest)
     open(quest.period)
 end
 local function render(data, selected)
+    if data.canDebug~=true then debugResume=false end
     if not data.needsSetup and type(data.dailyResetAt)=='number' and type(data.serverNow)=='number' then
         countdown={seconds=math.max(0,data.dailyResetAt-data.serverNow),at=GetGameTimer(),label=data.dailyReset}
     else countdown=nil end
     overlayStamp=nil
     local wasVisible=guiVisible
     guiData,guiVisible=data,true
-    SendNUIMessage({action=prefix..'gui',visible=true,data=data,selected=selected})
+    SendNUIMessage({action=prefix..'gui',visible=true,data=data,selected=selected,showDebug=debugResume})
     if guiReady and not wasVisible then SetNuiFocus(true,true) end
 end
 
 open = function(selected)
-    if busy then return end
+    if busy or DQDebugTravel.busy then return end
     local operation = {}
     busy = operation
     if not guiVisible then selected=selected or 'daily' end
@@ -164,27 +181,69 @@ if Config.Key then RegisterKeyMapping(Config.Command, 'デイリー / ウィー�
 exports('OpenQuests', function() CreateThread(function() open() end) end)
 
 local function debugRequest(operation,id,enabled)
-    if busy or not guiData then return end
+    if busy or not guiData or DQDebugTravel.busy then return end
     if guiData.canDebug~=true then
         SendNUIMessage({action=prefix..'debugResult',ok=false,forbidden=true,message=errors.forbidden})
         return
     end
-    local token={}
+    local token,life,viewEpoch={},lifecycle,generation
+    local movement=operation=='prepare' or operation=='finish' or operation=='waypoint' or operation=='nextHouse'
+    if movement then DQDebugTravel.busy=token end
     busy=token
+    local function release()
+        if busy==token then busy=false end
+        if DQDebugTravel.busy==token then DQDebugTravel.busy=false end
+    end
+    local function condition(result,valid)
+        local trial=result.preparation
+        if trial and trial.houseId and not trial.returnBlocked then
+            trial.startCheck=DQDebugTravel.checkHouse(trial.houseId,valid)
+        end
+    end
     local result=request('debug',operation,id,enabled)
-    if busy==token then busy=false end
-    if result.error=='cancelled' then return end
-    if result.ok then debugData=result end
-    if result.error=='forbidden' then
+    if result.error=='cancelled' then release();return end
+    if result.ok and movement then
+        debugResume=operation~='finish'
+        local help=result.preparation and result.preparation.help
+        close()
+        local function valid() return life==lifecycle end
+        local called,moved,err=pcall(DQDebugTravel.move,result.travel or {},valid)
+        if not called then moved,err=false,'travel_failed' end
+        if valid() then
+            local ready=request('debug','ready',id,moved==true)
+            if not ready.ok then notify(ready) end
+            if not moved and err~='cancelled' then notify({error=err or 'travel_failed'})
+            elseif moved and (operation=='prepare' or operation=='nextHouse') then
+                condition(result,valid)
+                if valid() then
+                    local check=result.preparation and result.preparation.startCheck
+                    lib.notify({title='検証準備',type='inform',
+                        description=(check and check.message or help or '実際の行動で検証してください。')..' 操作画面を閉じてF10で結果を確認できます。',
+                        duration=10000})
+                end
+            end
+        end
+        release()
+        return
+    end
+    if result.ok then
+        local function valid() return life==lifecycle and viewEpoch==generation end
+        condition(result,valid)
+        if not valid() then release();return end
+        debugData=result
+    end
+    release()
+    if result.error=='forbidden' and guiData then
         guiData.canDebug=false
         debugVisible,debugData=false,nil
     end
+    if not guiVisible then if not result.ok then notify(result) end;return end
     SendNUIMessage({action=prefix..'debugResult',ok=result.ok==true,data=result.ok and result or nil,
         forbidden=result.error=='forbidden',operation=operation,
         message=not result.ok and (errors[result.error] or errors.unavailable) or nil})
 end
 
-local function close()
+close = function()
     guiHide()
     guiData=nil
     debugVisible,debugData=false,nil
@@ -216,7 +275,8 @@ RegisterNUICallback('questAction',function(data,cb)
     elseif data.action=='debug' then
         if not debugVisible then return end
         local operation=data.operation
-        if operation=='list' or operation=='start' or operation=='stop' or operation=='reset' or operation=='pool' then
+        if operation=='list' or operation=='start' or operation=='stop' or operation=='reset' or operation=='pool'
+            or operation=='prepare' or operation=='finish' or operation=='waypoint' or operation=='nextHouse' then
             debugRequest(operation,data.id,data.enabled)
         end
     elseif data.action=='refresh' then open(data.period=='weekly' and 'weekly' or 'daily')
@@ -234,9 +294,17 @@ RegisterNUICallback('questAction',function(data,cb)
     end
 end)
 
-RegisterNetEvent('QBCore:Client:OnPlayerUnload', close)
+RegisterNetEvent('QBCore:Client:OnPlayerUnload', function()
+    lifecycle=lifecycle+1;debugResume=false
+    DQDebugTravel.cancel(false)
+    close()
+end)
 AddEventHandler('onResourceStop', function(name)
-    if name == GetCurrentResourceName() then close() end
+    if name == GetCurrentResourceName() then
+        lifecycle=lifecycle+1;debugResume=false
+        DQDebugTravel.cancel(true)
+        close()
+    end
 end)
 
 -- Both page scripts are loaded before this handshake; never focus an unloaded UI.
@@ -244,7 +312,7 @@ RegisterNUICallback('questReady',function(_,cb)
     guiReady=true
     overlayStamp=nil
     if guiVisible and guiData then
-        SendNUIMessage({action=prefix..'gui',visible=true,data=guiData})
+        SendNUIMessage({action=prefix..'gui',visible=true,data=guiData,showDebug=debugVisible})
         SetNuiFocus(true,true)
         if debugVisible and debugData then SendNUIMessage({action=prefix..'debugResult',ok=true,data=debugData}) end
     end

@@ -24,6 +24,7 @@ AddEventHandler=function(name,fn) handlers[name]=fn end
 exports=setmetatable({},{__call=function(_,name,fn) exposed[name]=fn end})
 local choice, dialogDelayed, alertClosed='cancel', false, 0
 local responseMode='ok'
+local debugReply
 lib={callback={await=function(name,_,...)
     requests[#requests+1]={name=name,args={...}}
     if delayed then coroutine.yield('await') end
@@ -31,6 +32,7 @@ lib={callback={await=function(name,_,...)
     if responseMode=='nil' then return nil end
     if responseMode=='not_ready' then return {ok=false,error='not_ready'} end
     if responseMode=='pending' and name=='suimag-dailyquest:claim' then return {ok=false,error='pending',claimId=42} end
+    if name=='suimag-dailyquest:debug' and debugReply then return debugReply(...) end
     if name=='suimag-dailyquest:preferences' then view.preferences=({...})[1];view.needsSetup=false end
     return name=='suimag-dailyquest:list' and view or {ok=true}
 end},notify=function(data) notices[#notices+1]=data end,
@@ -40,6 +42,15 @@ alertDialog=function()
     return choice
 end,
 closeAlertDialog=function() alertClosed=alertClosed+1 end}
+local debugMoves,houseChecks={},{}
+local houseCheckDelayed=false
+DQDebugTravel={busy=false,move=function(plan,valid)debugMoves[#debugMoves+1]=plan;return valid() end,
+    checkHouse=function(id,valid)
+        houseChecks[#houseChecks+1]=id
+        if houseCheckDelayed then coroutine.yield('house-check') end
+        if valid() then return {allowed=false,message='警察の人数が不足している(0/1人)'} end
+    end,
+    cancel=function()DQDebugTravel.busy=false end}
 dofile('client/main.lua')
 local function run(fn)
     local co=type(fn)=='thread' and fn or coroutine.create(fn)
@@ -185,4 +196,65 @@ action('debugView',{visible=false})
 before=#requests;action('debug',{operation='reset'});eq(#requests,before,'debug actions require the debug view')
 view.canDebug=false;run(commands.dailyquest)
 before=#requests;action('debugView',{visible=true});eq(#requests,before,'non-admin cannot request debug data from NUI')
+view.canDebug=true
+debugReply=function(op,id)
+    if op=='prepare' then return {ok=true,preparation={id=id,help='手動で操作してください'},travel={coords={1,2,3,0}}} end
+    if op=='finish' then return {ok=true,travel={coords={4,5,6,0}}} end
+    return {ok=true}
+end
+run(commands.dailyquest);action('debugView',{visible=true})
+before=#requests
+action('debug',{operation='prepare',id='daily_walk'})
+eq(requests[before+1].args[1],'prepare');eq(requests[#requests].args[1],'ready')
+eq(requests[#requests].args[3],true);eq(#debugMoves,1)
+eq(guiMessage().visible,false);eq(focused,false);eq(DQDebugTravel.busy,false)
+run(commands.dailyquest);eq(guiMessage().showDebug,true,'F10 returns to active diagnostics')
+action('debugView',{visible=true});action('debug',{operation='finish',id='daily_walk'})
+eq(#debugMoves,2)
+run(commands.dailyquest);eq(guiMessage().showDebug,false,'finish restores normal opening')
+action('debugView',{visible=true})
+delayed=true
+local prepare=coroutine.create(function() callbacks.questAction({action='debug',operation='prepare',id='daily_walk'},function()end) end)
+local function untilAwait(co)
+    while true do local ok,value=coroutine.resume(co);assert(ok,value);if value=='await' then return end end
+end
+untilAwait(prepare)
+run(handlers['QBCore:Client:OnPlayerUnload'])
+delayed=false;run(prepare)
+eq(#debugMoves,2,'late preparation never teleports a replacement character')
+eq(DQDebugTravel.busy,false)
+run(commands.dailyquest);action('debugView',{visible=true})
+delayed=true
+prepare=coroutine.create(function() callbacks.questAction({action='debug',operation='prepare',id='daily_walk'},function()end) end)
+untilAwait(prepare);action('close');delayed=false;run(prepare)
+eq(#debugMoves,3,'closing the UI does not cancel an already submitted preparation')
+eq(guiMessage().visible,false);eq(focused,false)
+local houseId,inside=1,false
+debugReply=function(op,id)
+    if op=='nextHouse' then houseId=2 end
+    if op=='prepare' or op=='nextHouse' then
+        return {ok=true,preparation={id=id,houseId=houseId,help='通常操作で解錠してください'},travel={coords={10,20,30,0}}}
+    end
+    if op=='list' then return {ok=true,preparation={id='daily_house',houseId=houseId,returnBlocked=inside}} end
+    return {ok=true}
+end
+run(commands.dailyquest);action('debugView',{visible=true})
+action('debug',{operation='prepare',id='daily_house'})
+eq(houseChecks[#houseChecks],1)
+eq(notices[#notices].description:find('警察の人数',1,true)~=nil,true,'normal rejection is shown after travel')
+run(commands.dailyquest);action('debugView',{visible=true})
+eq(messages[#messages].data.preparation.startCheck.allowed,false)
+action('debug',{operation='nextHouse',id='daily_house'})
+eq(houseChecks[#houseChecks],2,'candidate change checks the new house')
+run(commands.dailyquest);action('debugView',{visible=true})
+local checkCount=#houseChecks
+inside=true;action('debug',{operation='list'})
+eq(#houseChecks,checkCount,'no doorway check while inside')
+eq(messages[#messages].data.preparation.returnBlocked,true)
+inside=false;houseCheckDelayed=true
+local conditionRead=coroutine.create(function()callbacks.questAction({action='debug',operation='list'},function()end)end)
+while true do local ok,value=coroutine.resume(conditionRead);assert(ok,value);if value=='house-check' then break end end
+action('close');before=#messages
+houseCheckDelayed=false;run(conditionRead)
+eq(#messages,before,'late condition result does not reopen or overwrite a closed view')
 io.write(('client: %d assertions passed\n'):format(count))

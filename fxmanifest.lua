@@ -18,10 +18,12 @@ server_scripts {
     'server/autoclaim.lua',
     'server/tracking.lua',
     'server/debug.lua',
+    'server/preparation_plans.lua',
+    'server/preparations.lua',
     'server/main.lua',
     'server/adapters.lua',
 }
-client_script 'client/main.lua'
+client_scripts { 'client/preparations.lua', 'client/main.lua' }
 ui_page 'ui/countdown.html'
 files { 'sql/schema.sql', 'ui/countdown.html', 'ui/countdown.css', 'ui/countdown.js', 'ui/quests.css', 'ui/quests.js' }
 dependencies { 'qbx_core', 'ox_lib', 'oxmysql', 'ox_inventory', '/onesync' }

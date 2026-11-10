@@ -37,16 +37,25 @@
         <footer><span>自分のペースで、ひとつずつ。</span><span><kbd>Esc</kbd> で閉じる</span></footer>
       </div>
       <section id="debug-view" hidden aria-labelledby="debug-title">
-        <div class="debug-heading"><div><h2 id="debug-title" tabindex="-1">全クエストの検証</h2><p class="debug-intro">計測を開始して、実際にクエストの行動を試してください。未抽選・抽選除外のクエストも検証できます。</p></div><span class="debug-access">管理者限定</span></div>
+        <div class="debug-heading"><div><h2 id="debug-title" tabindex="-1">全クエストの検証</h2><p class="debug-intro">「検証開始」で計測と準備をまとめて行えます。未抽選・抽選除外のクエストも検証できます。</p></div><span class="debug-access">管理者限定</span></div>
         <div class="debug-controls"><span id="debug-recording">計測停止中</span><button id="debug-toggle" class="action-button">計測を開始</button><button id="debug-refresh" class="secondary-button" data-icon="refresh">一覧を更新</button><button id="debug-reset-all" class="secondary-button">全件の進捗をリセット</button></div>
         <p class="debug-help">検証結果から報酬は発生しません。通常クエストは通常どおり進行します。計測中は画面を閉じても継続します。再接続後は計測を再開してください。</p>
         <p class="debug-help">抽選ON/OFFは全プレイヤー共通で保存され、次回抽選・リロールに反映します。提示済みのクエストは継続します。OFFにしすぎると候補不足になります。</p>
+        <p class="debug-help">「検証開始」は対象の検証用進捗をリセットし、現場への移動・不足品の支給などを行います。手動操作後はF10で結果を確認できます。</p>
+        <section id="debug-preparation" class="debug-preparation" hidden aria-labelledby="debug-preparation-title">
+          <div class="debug-preparation-heading"><h3 id="debug-preparation-title" tabindex="-1"></h3><strong id="debug-preparation-result" role="status" aria-atomic="true"></strong></div>
+          <p id="debug-preparation-help"></p>
+          <p id="debug-preparation-cooldown"></p>
+          <p id="debug-house-status" role="status" aria-atomic="true"></p>
+          <div class="debug-preparation-controls"><button id="debug-check" class="action-button">結果を確認</button><button id="debug-waypoint" class="secondary-button">ウェイポイントへ移動</button><button id="debug-next-house" class="secondary-button" hidden>次の家へ移動</button><button id="debug-finish" class="secondary-button">終了して戻る</button></div>
+          <p class="debug-help">終了前に降車し、家や施設は通常の出口から退室してください。支給品は譲渡・保管できません。残りと検証車両は回収します。各ジョブの終了・返却、活動本来の報酬や消費は通常どおりです。</p>
+        </section>
         <p id="debug-feedback" role="status" aria-atomic="true"></p>
         <div class="debug-list-toolbar">
           <p id="debug-summary" class="debug-summary" role="status" aria-atomic="true"></p>
           <label class="debug-filter" for="debug-filter">検証状態<select id="debug-filter"><option value="all">すべて</option><option value="idle">未検出</option><option value="moved">進捗あり</option><option value="done">達成</option></select></label>
         </div>
-        <div class="debug-columns" aria-hidden="true"><span>クエスト / 判定元</span><span>検証状態</span><span>進捗 / 最終検出</span><span>抽選対象</span><span>リセット</span></div>
+        <div class="debug-columns" aria-hidden="true"><span>クエスト / 判定元</span><span>検証状態</span><span>進捗 / 最終検出</span><span>抽選対象</span><span>検証 / リセット</span></div>
         <div id="debug-rows"></div>
         <p class="debug-help">未検出は「まだ進捗を確認できていない」状態です。結果はリセットまで保存します。参加日数は計測中の異なる日（JST 05:00区切り）に加算されます。</p>
       </section>

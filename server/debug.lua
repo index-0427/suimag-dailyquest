@@ -28,7 +28,10 @@ function D.allowed(source)
     return job~=nil and job.name=='admin'
 end
 function D.active(source,session)
-    if session.debug and not D.allowed(source) then session.debug=nil end
+    if session.debug and not D.allowed(source) then
+        if DQPreparation then DQPreparation.cleanup(session) end
+        session.debug=nil
+    end
     return session.debug~=nil
 end
 function D.init()
@@ -125,10 +128,11 @@ function D.snapshot(session)
             target=row and tonumber(row.target) or quest.target,value=row and tonumber(row.progress) or 0,
             updatedAt=row and tonumber(row.updated_at) or nil,
             enabled=not DQSelection.disabled[quest.id],
+            preparation=DQPreparation and DQPreparation.describe(quest) or nil,
             available=quest.metric~='activity' or DQ.activityAvailable(Config.Activities[quest.activity],GetResourceState),
             source=quest.metric=='activity' and Config.Activities[quest.activity].resource or nil,
             unit=(quest.metric=='playtime' or quest.metric=='duty') and '秒' or quest.metric=='distance' and 'm' or (quest.unit or '回'),
         }
     end
-    return {ok=true,enabled=session.debug~=nil,quests=quests}
+    return {ok=true,enabled=session.debug~=nil,quests=quests,preparation=DQPreparation and DQPreparation.snapshot(session) or nil}
 end

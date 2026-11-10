@@ -280,7 +280,8 @@ const board = {
     const adminBoard={...board,canDebug:true};
     const debugBoard={enabled:true,quests:Array.from({length:48},(_,i)=>({
       id:'debug-'+i,period:i<24?'daily':'weekly',title:'検証クエスト '+i,description:'実際の行動で進捗を確認する。',
-      metric:'consume',target:3,value:i%3===0?0:i%3===1?1:3,unit:'回',enabled:i!==1,available:i!==2
+      metric:'consume',target:3,value:i%3===0?0:i%3===1?1:3,unit:'回',enabled:i!==1,available:i!==2,
+      preparation:{label:'道具を準備',help:'手動で操作して結果を確認します。',available:i!==2,reason:i===2?'連携元が未起動':null}
     }))};
     await show(adminBoard);
     await page.locator('#debug-tab').click();
@@ -308,7 +309,7 @@ const board = {
     await send({action:'suimag-dailyquest:debugResult',ok:true,data:debugBoard,operation:'pool'});
     assert.equal(await page.locator('.debug-row').first().getByRole('switch').isChecked(),false);
     await page.locator('#debug-filter').selectOption('moved');
-    await page.locator('.debug-row[data-id="debug-1"]').getByRole('button').click();
+    await page.locator('.debug-row[data-id="debug-1"]').getByRole('button',{name:/検証用進捗をリセット/}).click();
     assert.equal(await page.evaluate(()=>nuiCalls.at(-1).data.operation),'reset');
     debugBoard.quests[1].value=0;
     await send({action:'suimag-dailyquest:debugResult',ok:true,data:debugBoard,operation:'reset'});
@@ -325,6 +326,79 @@ const board = {
     await send({action:'suimag-dailyquest:debugResult',ok:false,message:'保存に失敗しました'});
     assert.match(await page.locator('#gui-error').textContent(),/保存に失敗/);
     assert.equal(await page.locator('#debug-reset-all').isEnabled(),true);
+    const prepare = page.locator('.debug-row[data-id="debug-0"]').getByRole('button',{name:/検証を開始/});
+    assert.equal(await prepare.isEnabled(),true);
+    assert.equal(await page.locator('.debug-row[data-id="debug-2"]').getByRole('button',{name:/検証を開始/}).isEnabled(),false);
+    await prepare.click();
+    assert.equal(await page.evaluate(()=>nuiCalls.at(-1).data.operation),'prepare');
+    assert.equal(await page.evaluate(()=>nuiCalls.at(-1).data.id),'debug-0');
+    const preparing={...debugBoard,preparation:{id:'debug-0',title:'検証クエスト 0',help:'手動で操作して結果を確認します。',waypoint:true,cooldown:42}};
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:preparing,operation:'prepare'});
+    assert.equal(await page.locator('#debug-preparation').isVisible(),true);
+    assert.match(await page.locator('#debug-preparation-result').textContent(),/加算待ち/);
+    assert.match(await page.locator('#debug-preparation-cooldown').textContent(),/42秒/);
+    assert.equal(await page.locator('#debug-toggle').isEnabled(),false,'finish before stopping measurement');
+    assert.equal(await page.locator('#debug-reset-all').isEnabled(),false);
+    assert.equal(await prepare.isEnabled(),false,'no duplicate preparation');
+    await page.locator('#debug-check').click();
+    assert.equal(await page.evaluate(()=>nuiCalls.at(-1).data.operation),'list');
+    preparing.quests=debugBoard.quests.map((q,i)=>i===0?{...q,value:1}:q);
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:preparing});
+    assert.match(await page.locator('#debug-preparation-result').textContent(),/今回 \+1 回 を検出/);
+    for (const size of [{width:1280,height:720},{width:375,height:667}]) {
+      await page.setViewportSize(size);
+      assert.equal(await page.locator('.workspace').evaluate(el=>el.scrollWidth<=el.clientWidth),true,'preparation fits '+size.width);
+      if (size.width===1280 && process.env.GUI_PREPARATION_SCREENSHOT) {
+        await page.locator('.workspace').evaluate(el=>{el.scrollTop=0;});
+        await page.screenshot({path:process.env.GUI_PREPARATION_SCREENSHOT});
+      }
+    }
+    const housePreparing={...preparing,
+      quests:preparing.quests.map((q,i)=>i===0?{...q,value:0}:q),
+      preparation:{...preparing.preparation,houseId:1,waypoint:false,
+        startCheck:{allowed:false,message:'警察の人数が不足している(0/1人)'}}};
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:housePreparing});
+    assert.match(await page.locator('#debug-house-status').textContent(),/警察の人数/);
+    assert.equal(await page.locator('#debug-next-house').isVisible(),true);
+    assert.equal(await page.locator('#debug-waypoint').isVisible(),false);
+    assert.equal(await page.locator('#debug-finish').isEnabled(),true,'blocked start can still return from the doorway');
+    for (const size of [{width:1280,height:720},{width:375,height:667}]) {
+      await page.setViewportSize(size);
+      assert.equal(await page.locator('.workspace').evaluate(el=>el.scrollWidth<=el.clientWidth),true,'house readiness fits '+size.width);
+      if (size.width===1280 && process.env.GUI_HOUSE_SCREENSHOT) {
+        await page.locator('.workspace').evaluate(el=>{el.scrollTop=0;});
+        await page.screenshot({path:process.env.GUI_HOUSE_SCREENSHOT});
+      }
+    }
+    await page.locator('#debug-next-house').click();
+    assert.equal(await page.evaluate(()=>nuiCalls.at(-1).data.operation),'nextHouse');
+    housePreparing.preparation.houseId=2;
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:housePreparing});
+    assert.match(await page.locator('#debug-house-status').textContent(),/物件 2/);
+    housePreparing.preparation.returnBlocked=true;
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:housePreparing});
+    assert.match(await page.locator('#debug-house-status').textContent(),/通常の出口/);
+    assert.equal(await page.locator('#debug-next-house').isEnabled(),false);
+    assert.equal(await page.locator('#debug-finish').isEnabled(),false);
+    assert.equal(await page.locator('#debug-check').isEnabled(),true);
+    housePreparing.preparation.returnBlocked=false;
+    housePreparing.preparation.startCheck={allowed:true,message:'通常の開始条件を満たしています。'};
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:housePreparing});
+    assert.equal(await page.locator('#debug-finish').isEnabled(),true);
+    assert.match(await page.locator('#debug-preparation-result').textContent(),/加算待ち/,'readiness does not manufacture progress');
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:preparing});
+    await page.locator('#debug-waypoint').click();
+    assert.equal(await page.evaluate(()=>nuiCalls.at(-1).data.operation),'waypoint');
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:preparing});
+    await page.locator('#debug-finish').click();
+    assert.equal(await page.evaluate(()=>nuiCalls.at(-1).data.operation),'finish');
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:debugBoard});
+    assert.equal(await page.locator('#debug-preparation').isVisible(),false);
+    assert.equal(await page.locator('#debug-toggle').isEnabled(),true);
+    await send({action:'suimag-dailyquest:gui',visible:false});
+    await send({action:'suimag-dailyquest:gui',visible:true,data:adminBoard,showDebug:true});
+    assert.equal(await page.locator('#debug-view').isVisible(),true,'F10 resumes the debug view');
+    await send({action:'suimag-dailyquest:debugResult',ok:true,data:debugBoard});
     for (const size of [{width:1920,height:1080},{width:1280,height:720},{width:375,height:667}]) {
       await page.setViewportSize(size);
       assert.equal(await page.locator('#debug-tab').isVisible(),true);

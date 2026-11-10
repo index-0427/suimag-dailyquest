@@ -149,10 +149,14 @@ exports = {
 }
 local coins={}
 exports.ox_inventory={
+    registerHook=function()end,
     Items=function(_,name)
         if hooks.missingItem then return nil end
+        if name=='water' or name=='advancedlockpick' then return {label=name} end
         if name=='black_coin' or name=='white_coin' then return {label=name=='black_coin' and '黒コイン' or '白コイン'} end
     end,
+    GetItemCount=function()return 0 end,
+    RemoveItem=function()return true end,
     CanCarryItem=function() hook('capacity');return not hooks.full end,
     AddItem=function(_,id,name,amount)
         if hooks.coinReject then return false end
@@ -169,7 +173,16 @@ TriggerClientEvent=function(...) notifications[#notifications+1]={...} end
 DQStore.sql={}
 local ace={}
 IsPlayerAceAllowed=function(id) return ace[tonumber(id)]==true end
+GetPlayerPed=function(id)return id end
+DoesEntityExist=function(id)return id>0 end
+GetEntityCoords=function()return {x=10,y=20,z=30} end
+GetEntityHeading=function()return 0 end
+GetEntityHealth=function()return 200 end
+GetVehiclePedIsIn=function()return 0 end
+GetPlayerRoutingBucket=function()return 0 end
 dofile('server/debug.lua')
+dofile('server/preparation_plans.lua')
+dofile('server/preparations.lua')
 dofile('server/main.lua')
 local function resume(co)
     local ok,result=coroutine.resume(co);assert(ok,result);return result
@@ -652,12 +665,13 @@ MySQL.transaction={await=function(queries)
 end}
 MySQL.update={await=function(query,values) debugQueries[#debugQueries+1]={query=query,values=values};return 1 end}
 MySQL.query={await=function() hook('debugRead');return {} end}
+MySQL.scalar={await=function()return nil end}
 local function debugCall(id,action,quest,enabled)
     advance(2);return callbacks['suimag-dailyquest:debug'](id,action,quest,enabled)
 end
 player(50,'DEBUG');preferences.DEBUG=false
 local beforeDebug=#debugQueries
-for _,op in ipairs({'list','start','stop','reset','pool'}) do eq(debugCall(50,op,'daily_bus',false).error,'forbidden') end
+for _,op in ipairs({'list','start','stop','reset','pool','prepare','finish','waypoint','ready','nextHouse'}) do eq(debugCall(50,op,'daily_bus',false).error,'forbidden') end
 eq(#debugQueries,beforeDebug,'denied operations never touch storage')
 eq(list(50).canDebug,false)
 ace[50]=true
@@ -712,4 +726,54 @@ for _,quests in ipairs({list(51).quests,DQDebug.snapshot({citizenid='LOOT_AVAILA
     eq(availability.daily_atm,true,'normal/debug: observer restored')
     eq(availability.weekly_store,true,'normal/debug: observer restored')
 end
+ace[51]=true
+eq(debugCall(51,'prepare','unknown').error,'invalid_request')
+local prepared=debugCall(51,'prepare','daily_walk')
+eq(prepared.ok,true);eq(prepared.enabled,true)
+eq(prepared.preparation.id,'daily_walk');eq(prepared.preparation.moving,true)
+eq(debugCall(51,'prepare','daily_time').error,'preparation_active','no duplicate preparations')
+eq(debugCall(51,'ready','daily_walk','yes').error,'invalid_request')
+eq(debugCall(51,'ready','daily_walk',true).ok,true)
+hooks.debugRead=function()error('DB unavailable')end
+hooks.debugTransaction=function()error('DB unavailable')end
+eq(debugCall(51,'finish','daily_walk').ok,true,'cleanup works during a DB outage')
+eq(debugCall(51,'ready','daily_walk',true).ok,true,'return acknowledgement needs no DB')
+hooks.debugRead,hooks.debugTransaction=nil,nil
+eq(debugCall(51,'list').preparation,nil,'finished preparation cleared')
+eq(debugCall(51,'prepare','daily_walk').ok,true)
+ace[51]=false
+eq(list(51).canDebug,false,'permission loss')
+ace[51]=true
+eq(debugCall(51,'list').preparation,nil,'permission loss cleans up preparation')
+eq(debugCall(51,'prepare','daily_walk').ok,true)
+local previous=invoking;invoking='qbx_core';handlers['QBCore:Server:OnPlayerUnload'](51);invoking=previous
+player(51,'LOOT_AVAILABILITY')
+eq(debugCall(51,'list').preparation,nil,'unload clears the preparation')
+player(52,'PREP_FAILURE');ace[52]=true
+hooks.full=true
+eq(debugCall(52,'prepare','daily_meals').error,'inventory_full')
+eq(debugCall(52,'list').enabled,false,'failed preparation does not silently enable recording')
+eq(debugCall(52,'start').enabled,true)
+eq(debugCall(52,'prepare','daily_meals').error,'inventory_full')
+eq(debugCall(52,'list').enabled,true,'failed preparation preserves existing recording')
+hooks.full=nil
+player(53,'HOUSE_NORMAL');ace[53]=true
+resourceStates.satou_houserobbery='started'
+local houseBucket=0
+GetPlayerRoutingBucket=function(id)return id==53 and houseBucket or 0 end
+local housePrep=debugCall(53,'prepare','daily_house')
+eq(housePrep.ok,true);eq(housePrep.preparation.houseId,1)
+eq(housePrep.travel.coords[1],-64.252);eq(houseBucket,0,'no automatic entry')
+eq(debugCall(53,'ready','daily_house',true).ok,true)
+houseBucket=60001
+eq(debugCall(53,'list').preparation.returnBlocked,true)
+eq(debugCall(53,'nextHouse','daily_house').error,'exit_required')
+eq(debugCall(53,'finish','daily_house').error,'exit_required')
+houseBucket=0
+local nextHouse=debugCall(53,'nextHouse','daily_house')
+eq(nextHouse.ok,true);eq(nextHouse.preparation.houseId,2)
+eq(debugCall(53,'ready','daily_house',true).ok,true)
+local houseFinish=debugCall(53,'finish','daily_house')
+eq(houseFinish.ok,true);eq(houseFinish.travel.coords[1],10)
+eq(debugCall(53,'ready','daily_house',true).ok,true)
 io.write(('server: %d assertions passed\n'):format(count))
